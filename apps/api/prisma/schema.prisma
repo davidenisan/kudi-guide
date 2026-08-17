@@ -1,0 +1,134 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum AuthProvider {
+  phone
+  email
+  oauth
+}
+
+enum OcrStatus {
+  queued
+  processing
+  completed
+  failed
+}
+
+enum TransactionSource {
+  whatsapp
+  upload
+  manual
+}
+
+enum TransactionStatus {
+  pending
+  confirmed
+  needs_review
+  duplicate
+}
+
+enum GoalType {
+  saving
+  investment
+}
+
+model User {
+  id             String         @id @default(uuid()) @db.Uuid
+  phone          String?        @unique
+  email          String?        @unique
+  authProvider   AuthProvider   @map("auth_provider")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  screenshots    Screenshot[]
+  transactions   Transaction[]
+  budgets        Budget[]
+  goals          Goal[]
+  notifications  Notification[]
+
+  @@map("users")
+}
+
+model Screenshot {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @map("user_id") @db.Uuid
+  s3Key       String    @map("s3_key")
+  ocrStatus   OcrStatus @default(queued) @map("ocr_status")
+  rawOcrText  String?   @map("raw_ocr_text")
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("screenshots")
+}
+
+model Transaction {
+  id                String              @id @default(uuid()) @db.Uuid
+  userId            String              @map("user_id") @db.Uuid
+  source            TransactionSource
+  amount            Decimal             @db.Decimal(14, 2)
+  currency          String              @default("NGN")
+  merchant          String?
+  categoryId        String?             @map("category_id") @db.Uuid
+  occurredAt        DateTime            @map("occurred_at")
+  confidenceScore   Float?              @map("confidence_score")
+  dedupHash         String?             @unique @map("dedup_hash")
+  status            TransactionStatus   @default(pending)
+  user              User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category          Category?           @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  @@index([userId, occurredAt])
+  @@index([categoryId])
+  @@map("transactions")
+}
+
+model Category {
+  id                String        @id @default(uuid()) @db.Uuid
+  name              String        @unique
+  isSystemDefault   Boolean       @default(false) @map("is_system_default")
+  transactions      Transaction[]
+  budgets           Budget[]
+
+  @@map("categories")
+}
+
+model Budget {
+  id            String    @id @default(uuid()) @db.Uuid
+  userId        String    @map("user_id") @db.Uuid
+  categoryId    String    @map("category_id") @db.Uuid
+  period        String
+  amountLimit   Decimal   @map("amount_limit") @db.Decimal(14, 2)
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category      Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, categoryId, period])
+  @@map("budgets")
+}
+
+model Goal {
+  id             String    @id @default(uuid()) @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  type           GoalType
+  targetAmount   Decimal   @map("target_amount") @db.Decimal(14, 2)
+  currentAmount  Decimal   @default(0) @map("current_amount") @db.Decimal(14, 2)
+  targetDate     DateTime? @map("target_date")
+  user           User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("goals")
+}
+
+model Notification {
+  id       String    @id @default(uuid()) @db.Uuid
+  userId   String    @map("user_id") @db.Uuid
+  type     String
+  payload  Json
+  sentAt   DateTime? @map("sent_at")
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("notifications")
+}
