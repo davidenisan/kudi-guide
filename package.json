@@ -9,7 +9,17 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "db:migrate": "pnpm --filter api db:migrate",
-    "db:seed": "pnpm --filter api db:seed"
+    "db:seed": "pnpm --filter api db:seed",
+    "bot": "npm --prefix apps/telegram-bot run dev",
+    "bot:db:init": "npm --prefix apps/telegram-bot run db:init",
+    "bot:db:stats": "npm --prefix apps/telegram-bot run db:stats",
+    "bot:db:smoke": "npm --prefix apps/telegram-bot run db:smoke",
+    "bot:test": "npm --prefix apps/telegram-bot run test:nlu && npm --prefix apps/telegram-bot run test:router",
+    "bot:test:intent": "npm --prefix apps/telegram-bot run test:intent",
+    "bot:test:router": "npm --prefix apps/telegram-bot run test:router",
+    "bot:typecheck": "npm --prefix apps/telegram-bot run typecheck",
+    "bot:model:fetch": "npm --prefix apps/telegram-bot run model:fetch",
+    "bot:test:nlu": "npm --prefix apps/telegram-bot run test:nlu"
   },
   "devDependencies": {
     "typescript": "^5.9.2"
