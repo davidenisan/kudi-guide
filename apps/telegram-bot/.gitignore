@@ -1,0 +1,7 @@
+# Real receipt screenshots for the Section 5 test set — these are actual
+# transactions belonging to real people. Never commit them.
+testset/
+
+# Raw uploaded payloads and rejected-extraction logs (Sections 2 and 8).
+storage/
+models/
