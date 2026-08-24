@@ -27,6 +27,16 @@ const envSchema = z.object({
   NLU_MODEL_URI: blankAsUndefined.pipe(
     z.string().default("hf:Qwen/Qwen2.5-1.5B-Instruct-GGUF/qwen2.5-1.5b-instruct-q4_k_m.gguf"),
   ),
+  /**
+   * Discard messages that arrived while the bot was offline. Convenient in
+   * development, where a restart would otherwise replay test traffic. Must be
+   * false with real testers: Telegram holds undelivered messages for ~24h, and
+   * dropping them means a tester's receipt silently disappears.
+   */
+  TELEGRAM_DROP_PENDING_UPDATES: blankAsUndefined
+    .pipe(z.enum(["true", "false"]).default("false"))
+    .transform((value) => value === "true"),
+
   /** Past this, give up and fall back to the deterministic matcher. */
   NLU_TIMEOUT_MS: z.preprocess(
     (value) => (typeof value === "string" && value.trim() !== "" ? Number(value) : 15000),

@@ -2,6 +2,7 @@ import { Bot, GrammyError, HttpError, type Context } from "grammy";
 import type { Message } from "grammy/types";
 import type { IncomingMessage, MessageHandler, OutgoingReply } from "../../core/message.js";
 import { isSupportedReceiptMedia } from "../../core/message.js";
+import { env } from "../../config/env.js";
 import { logger } from "../../logger.js";
 
 /**
@@ -77,7 +78,7 @@ export function createTelegramAdapter(token: string, handler: MessageHandler): T
       logger.info("connected to telegram", { username: me.username, botId: me.id });
       // Resolves only when the bot stops; callers run it in the background.
       void bot.start({
-        drop_pending_updates: true,
+        drop_pending_updates: env.TELEGRAM_DROP_PENDING_UPDATES,
         onStart: () => logger.info("long polling started — send the bot a message"),
       });
     },
