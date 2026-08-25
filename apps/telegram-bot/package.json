@@ -16,7 +16,8 @@
     "model:fetch": "tsx src/scripts/fetch-model.ts",
     "test:nlu": "tsx src/scripts/test-nlu.ts",
     "test:latency": "tsx src/scripts/test-latency.ts",
-    "test:admin": "tsx src/scripts/test-admin-report.ts"
+    "test:admin": "tsx src/scripts/test-admin-report.ts",
+    "channel:id": "tsx src/scripts/find-chat-id.ts"
   },
   "dependencies": {
     "dotenv": "^17.2.1",

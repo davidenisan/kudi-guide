@@ -34,6 +34,7 @@ export function createTelegramAdapter(token: string, handler: MessageHandler): T
   bot.on("message", async (ctx) => {
     const message = ctx.message;
     const userId = message.from.id;
+    const userName = message.from.first_name;
 
     // Everything here takes a beat — local OCR takes seconds, and understanding
     // a text message runs a local model. Show "typing" for all of it rather than
@@ -42,7 +43,7 @@ export function createTelegramAdapter(token: string, handler: MessageHandler): T
     const stopTyping = keepTyping(ctx);
 
     try {
-      const incoming = await toIncomingMessage(ctx, message, userId);
+      const incoming = await toIncomingMessage(ctx, message, userId, userName);
       if (!incoming) {
         logger.info("ignored update with no usable content", { userId });
         return;
@@ -107,6 +108,7 @@ async function toIncomingMessage(
   ctx: Context,
   message: Message,
   userId: number,
+  userName: string | undefined,
 ): Promise<IncomingMessage | null> {
   const receivedAt = new Date(message.date * 1000);
 
@@ -114,7 +116,7 @@ async function toIncomingMessage(
     // Telegram sends several sizes, ascending. Always take the largest — the
     // smaller ones are recompressed and will hurt OCR accuracy (Section 2).
     const largest = message.photo[message.photo.length - 1];
-    return downloadMedia(ctx, userId, receivedAt, {
+    return downloadMedia(ctx, userId, userName, receivedAt, {
       fileId: largest.file_id,
       fileSize: largest.file_size,
       // Telegram does not label photo mime types; it always re-encodes to JPEG.
@@ -126,7 +128,7 @@ async function toIncomingMessage(
 
   if (message.document) {
     const document = message.document;
-    return downloadMedia(ctx, userId, receivedAt, {
+    return downloadMedia(ctx, userId, userName, receivedAt, {
       fileId: document.file_id,
       fileSize: document.file_size,
       mimeType: document.mime_type,
@@ -140,6 +142,7 @@ async function toIncomingMessage(
   if (other) {
     return {
       userId,
+      userName,
       kind: "media",
       mimeType: other.mimeType,
       fileName: other.label,
@@ -149,7 +152,7 @@ async function toIncomingMessage(
   }
 
   if (message.text) {
-    return { userId, kind: "text", text: message.text, receivedAt };
+    return { userId, userName, kind: "text", text: message.text, receivedAt };
   }
 
   return null;
@@ -166,11 +169,13 @@ interface MediaRef {
 async function downloadMedia(
   ctx: Context,
   userId: number,
+  userName: string | undefined,
   receivedAt: Date,
   ref: MediaRef,
 ): Promise<IncomingMessage> {
   const base: IncomingMessage = {
     userId,
+    userName,
     kind: "media",
     mimeType: ref.mimeType,
     fileName: ref.fileName,

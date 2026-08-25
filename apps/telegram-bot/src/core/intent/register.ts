@@ -135,3 +135,24 @@ export function isJunkText(text: string): boolean {
 
   return !tokens.some(isWordLike);
 }
+
+/**
+ * A typed-out expense: "spent 4000 on transport", "paid 2k for fuel".
+ *
+ * Phase 0 logs receipts, not typed amounts, so these must be turned down. They
+ * are handled here rather than by the model because both model sizes classified
+ * them as summary requests no matter how the instruction was worded — and the
+ * consequence is worse than an odd reply. Someone who types an expense and gets
+ * a spending summary back may reasonably believe it was recorded. It wasn't.
+ *
+ * The pattern is narrow on purpose: a spending verb, an amount, and no question.
+ * "How much have I spent" has the verb but asks a question; "delete the 4000
+ * one" has an amount but no spending verb. Neither is caught.
+ */
+const SPENDING_VERB = /\b(spent|spend|paid|pay|bought|buy|sent|send|used|use|added|add|log|logged|charge[d]?)\b/i;
+const AMOUNT = /\b\d+(?:[.,]\d+)*\s*(?:k|m|naira|ngn)?\b|₦\s*\d/i;
+const QUESTION = /\b(how|what|wetin|which|where|when|why|hw|show|tell me)\b|\?/i;
+
+export function looksLikeTypedExpense(text: string): boolean {
+  return SPENDING_VERB.test(text) && AMOUNT.test(text) && !QUESTION.test(text);
+}

@@ -2,7 +2,7 @@ import { logger } from "../logger.js";
 import { ACT_THRESHOLD, classifyIntent, smallTalkFlavor } from "./intent/classify.js";
 import type { Intent } from "./intent/patterns.js";
 import { expandEmoji } from "./intent/normalize.js";
-import { detectRegister, isJunkText } from "./intent/register.js";
+import { detectRegister, isJunkText, looksLikeTypedExpense } from "./intent/register.js";
 import { interpretMessage, isNluEnabled } from "./nlu/index.js";
 import type { NluConfidence } from "./nlu/schema.js";
 
@@ -35,7 +35,7 @@ export interface Understanding {
   /** Set when intent is unclear: did we not follow them, or do we not do that? */
   unclearReason: UnclearReason;
   /** Which layer produced this, for the review log. */
-  source: "llm" | "patterns" | "junk-filter";
+  source: "llm" | "patterns" | "junk-filter" | "typed-expense";
   confidence: string;
 }
 
@@ -81,6 +81,21 @@ export async function understand(text: string): Promise<Understanding> {
       period: null,
       unclearReason: "not_understood",
       source: "junk-filter",
+      confidence: "n/a",
+    };
+  }
+
+  // Typed expenses are turned down here — see looksLikeTypedExpense for why this
+  // one case does not go to the model.
+  if (looksLikeTypedExpense(prepared)) {
+    return {
+      intent: "unclear",
+      action: "act",
+      smallTalkKind: "greeting",
+      register,
+      period: null,
+      unclearReason: "out_of_scope",
+      source: "typed-expense",
       confidence: "n/a",
     };
   }

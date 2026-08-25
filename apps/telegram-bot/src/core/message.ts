@@ -13,6 +13,11 @@
 export interface IncomingMessage {
   /** Stable numeric id for the person messaging us, from the transport. */
   userId: number;
+  /**
+   * Their first name, when the transport supplies one. Used to make replies
+   * feel addressed to a person rather than broadcast. Never required.
+   */
+  userName?: string;
   kind: "text" | "media";
 
   /** Present when kind is "text". */

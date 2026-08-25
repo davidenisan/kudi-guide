@@ -2,8 +2,18 @@ import { config as loadEnv } from "dotenv";
 import { resolve } from "node:path";
 import { z } from "zod";
 
+// Variables set in the shell win over both files. dotenv's override would
+// otherwise let a checked-in file silently beat an explicit `FOO=bar npm run …`,
+// which makes it impossible to try a different setting without editing the file.
+const shellProvided = new Map(Object.entries(process.env));
+
 loadEnv({ path: resolve(process.cwd(), "../../.env") });
+// The app's own .env beats the repo-root one.
 loadEnv({ path: resolve(process.cwd(), ".env"), override: true });
+
+for (const [key, value] of shellProvided) {
+  if (value !== undefined) process.env[key] = value;
+}
 
 /** A var set to "" in a .env file means "not filled in yet", not "empty value". */
 const blankAsUndefined = z.preprocess(

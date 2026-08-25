@@ -29,8 +29,8 @@ export const MODELS_DIR = resolve(process.cwd(), "models");
 /** Small on purpose: a system prompt, one short message, one short JSON object. */
 const CONTEXT_SIZE = 4096;
 
-/** One sequence per prompt: intent classification and category answers. */
-const MAX_SESSIONS = 2;
+/** One sequence per prompt: intent, category answers, and conversational replies. */
+const MAX_SESSIONS = 3;
 
 interface Session {
   session: LlamaChatSession;
@@ -134,6 +134,51 @@ async function grammarFor(llama: Llama, key: string, schema: object): Promise<Ll
   const grammar = await llama.createGrammarForJsonSchema(schema as never);
   grammarCache.set(key, grammar);
   return grammar;
+}
+
+/**
+ * Free-text generation, for conversational replies. No grammar, because there is
+ * no schema to hold it to — the guardrails for this path live in respond.ts and
+ * run after generation.
+ */
+export async function generateChat(
+  sessionKey: string,
+  systemPrompt: string,
+  userPrompt: string,
+  options: { temperature: number; maxTokens: number },
+): Promise<string | null> {
+  const run = queue.then(async () => {
+    const current = await load();
+    if (!current) return null;
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), env.NLU_TIMEOUT_MS);
+
+    try {
+      const started = Date.now();
+      const entry = getSession(current, sessionKey, systemPrompt);
+
+      try {
+        const response = await entry.session.prompt(userPrompt, {
+          temperature: options.temperature,
+          maxTokens: options.maxTokens,
+          signal: controller.signal,
+        });
+        logger.info("nlu reply generated", { ms: Date.now() - started });
+        return response;
+      } finally {
+        entry.session.setChatHistory(entry.initialHistory);
+      }
+    } catch (error) {
+      logger.error("nlu reply generation failed", { error });
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  });
+
+  queue = run.catch(() => undefined);
+  return run;
 }
 
 /**
