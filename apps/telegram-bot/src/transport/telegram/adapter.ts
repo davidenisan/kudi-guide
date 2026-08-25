@@ -1,8 +1,9 @@
-import { Bot, GrammyError, HttpError, type Context } from "grammy";
+import { Bot, GrammyError, HttpError, InputFile, type Context } from "grammy";
 import type { Message } from "grammy/types";
 import type { IncomingMessage, MessageHandler, OutgoingReply } from "../../core/message.js";
 import { isSupportedReceiptMedia } from "../../core/message.js";
 import { env } from "../../config/env.js";
+import { formatReport, setAdminNotifier, type AdminNotifier, type AdminReport } from "../../core/notify.js";
 import { logger } from "../../logger.js";
 
 /**
@@ -76,6 +77,14 @@ export function createTelegramAdapter(token: string, handler: MessageHandler): T
     async start() {
       const me = await bot.api.getMe();
       logger.info("connected to telegram", { username: me.username, botId: me.id });
+
+      const notifier = createAdminNotifier(bot);
+      setAdminNotifier(notifier);
+      logger.info(
+        notifier
+          ? "admin reports will go to the configured channel"
+          : "ADMIN_CHAT_ID not set — admin reports go to the review log only",
+      );
       // Resolves only when the bot stops; callers run it in the background.
       void bot.start({
         drop_pending_updates: env.TELEGRAM_DROP_PENDING_UPDATES,
@@ -83,6 +92,7 @@ export function createTelegramAdapter(token: string, handler: MessageHandler): T
       });
     },
     async stop() {
+      setAdminNotifier(null);
       await bot.stop();
       logger.info("long polling stopped");
     },
@@ -186,7 +196,8 @@ async function downloadMedia(
     if (!response.ok) throw new Error(`file download returned ${response.status}`);
 
     const fileBytes = Buffer.from(await response.arrayBuffer());
-    return { ...base, fileBytes };
+    // Telegram keeps the original; the core stores this handle instead of a copy.
+    return { ...base, fileBytes, transportRef: ref.fileId };
   } catch (error) {
     logger.error("could not download file", { userId, error });
     return { ...base, mediaError: "download_failed" };
@@ -202,6 +213,49 @@ function otherAttachment(message: Message): { mimeType?: string; label: string }
   if (message.video_note) return { mimeType: undefined, label: "video note" };
   if (message.sticker) return { mimeType: undefined, label: "sticker" };
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// admin reports
+// ---------------------------------------------------------------------------
+
+/** Telegram captions cap at 1024 characters. */
+const MAX_CAPTION = 1024;
+
+/**
+ * Delivers an admin report to the private channel in ADMIN_CHAT_ID.
+ *
+ * Returns a no-op when that isn't configured, so the bot runs perfectly well
+ * without one — reports then live only in the review log.
+ */
+function createAdminNotifier(bot: Bot): AdminNotifier | null {
+  const chatId = env.ADMIN_CHAT_ID;
+  if (!chatId) return null;
+
+  return async (report: AdminReport): Promise<void> => {
+    const text = formatReport(report);
+
+    if (!report.image) {
+      await bot.api.sendMessage(chatId, truncate(text, 4000));
+      return;
+    }
+
+    const file = new InputFile(report.image, report.imageName ?? "receipt");
+
+    // The picture is the point, so send it even if the detail has to follow
+    // separately — a caption cannot carry a full OCR dump.
+    if (text.length <= MAX_CAPTION) {
+      await bot.api.sendPhoto(chatId, file, { caption: text });
+      return;
+    }
+
+    await bot.api.sendPhoto(chatId, file, { caption: truncate(report.title, MAX_CAPTION) });
+    await bot.api.sendMessage(chatId, truncate(text, 4000));
+  };
+}
+
+function truncate(value: string, limit: number): string {
+  return value.length <= limit ? value : `${value.slice(0, limit - 1)}…`;
 }
 
 // ---------------------------------------------------------------------------

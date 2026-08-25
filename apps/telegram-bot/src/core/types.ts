@@ -58,6 +58,14 @@ export interface Transaction {
   status: TransactionStatus;
   /** SHA-256 of the raw uploaded file bytes (Section 7 fast-path dedup). */
   sourceReceiptHash: string;
+  /**
+   * Opaque handle for re-fetching the original image from the transport that
+   * received it. Stored instead of a second copy of the file. Never parsed here,
+   * and never guaranteed to still resolve.
+   */
+  transportRef: string | null;
+  /** Which bank the receipt looked like, for per-bank accuracy reporting. */
+  bank: string | null;
   /** Full extraction output, always stored — this is the debugging record. */
   rawExtraction: unknown;
   createdAt: Date;

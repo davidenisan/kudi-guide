@@ -31,6 +31,19 @@ export interface IncomingMessage {
   /** Why fileBytes is missing, when it is. Lets the core reply accurately. */
   mediaError?: "unsupported_type" | "too_large" | "download_failed";
 
+  /**
+   * An opaque handle the transport can use to fetch this file again later.
+   *
+   * The core stores it and never reads it — it is a string, not a Telegram
+   * file_id as far as anything here is concerned. This is what lets successful
+   * receipts avoid being copied at all: the platform is already keeping the
+   * image, so we keep a way to ask for it rather than a second copy.
+   *
+   * Handles are only meaningful to the transport that issued them, so nothing
+   * may depend on one resolving.
+   */
+  transportRef?: string;
+
   receivedAt: Date;
 }
 

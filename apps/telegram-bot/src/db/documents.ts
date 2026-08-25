@@ -28,6 +28,8 @@ export interface TransactionDoc {
   category: Category | null;
   status: TransactionStatus;
   source_receipt_hash: string;
+  transport_ref: string | null;
+  bank: string | null;
   raw_extraction_json: unknown;
   created_at: Date;
   undone_at: Date | null;
@@ -57,6 +59,8 @@ export function toTransaction(doc: TransactionDoc): Transaction {
     category: doc.category,
     status: doc.status,
     sourceReceiptHash: doc.source_receipt_hash,
+    transportRef: doc.transport_ref ?? null,
+    bank: doc.bank ?? null,
     rawExtraction: doc.raw_extraction_json,
     createdAt: doc.created_at,
     undoneAt: doc.undone_at,

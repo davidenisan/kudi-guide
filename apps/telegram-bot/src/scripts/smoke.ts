@@ -47,6 +47,8 @@ async function main(): Promise<void> {
     category: "Shopping",
     status: "confirmed",
     sourceReceiptHash: "hash-a",
+    transportRef: "telegram-file-a",
+    bank: "GTBank",
     rawExtraction: { lines: ["Amount", "N12,500.00"] },
   });
   check("saves integer kobo", tx.amountKobo === 1_250_000);
@@ -87,6 +89,8 @@ async function main(): Promise<void> {
     category: null,
     status: "needs_category",
     sourceReceiptHash: "hash-b",
+    transportRef: null,
+    bank: "Kuda",
     rawExtraction: {},
   });
   await setPendingCategoryTransaction(USER, pending.id);
@@ -103,6 +107,8 @@ async function main(): Promise<void> {
     category: null,
     status: "rejected",
     sourceReceiptHash: "hash-c",
+    transportRef: null,
+    bank: null,
     rawExtraction: {},
   });
 

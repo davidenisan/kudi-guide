@@ -128,6 +128,8 @@ export async function saveTransaction(input: NewTransaction): Promise<Transactio
     category: input.category,
     status: input.status,
     source_receipt_hash: input.sourceReceiptHash,
+    transport_ref: input.transportRef,
+    bank: input.bank,
     raw_extraction_json: input.rawExtraction,
     created_at: new Date(),
     undone_at: null,

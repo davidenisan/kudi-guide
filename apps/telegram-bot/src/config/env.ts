@@ -28,6 +28,12 @@ const envSchema = z.object({
     z.string().default("hf:Qwen/Qwen2.5-1.5B-Instruct-GGUF/qwen2.5-1.5b-instruct-q4_k_m.gguf"),
   ),
   /**
+   * Private channel that failed extractions are reported to. Optional: without
+   * it the bot runs normally and reports live only in the review log.
+   */
+  ADMIN_CHAT_ID: blankAsUndefined,
+
+  /**
    * Discard messages that arrived while the bot was offline. Convenient in
    * development, where a restart would otherwise replay test traffic. Must be
    * false with real testers: Telegram holds undelivered messages for ~24h, and
