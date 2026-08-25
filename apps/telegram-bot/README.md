@@ -185,6 +185,26 @@ message isn't waiting on a download.
 `db:init` creates the `users` and `transactions` collections and the Section 4
 indexes. It is safe to re-run.
 
+## Receipt extraction
+
+PaddleOCR is Python and the bot is Node, so OCR runs as its own long-lived
+process on localhost. It holds the models in memory — loading them takes a
+second or two, and spawning per receipt would pay that every time.
+
+```
+./ocr/run.sh          # terminal 1: the OCR service
+npm run dev           # terminal 2: the bot
+```
+
+Extraction anchors on labels, not positions: find "Amount", take the
+money-shaped number nearest it. There are no per-bank templates, and adding a
+bank needs no code. `npm run test:extract` runs the whole thing over
+`testset/` and prints every field with its confidence.
+
+One environment note for macOS 26: Homebrew's Python links `pyexpat` against a
+`libexpat` symbol the system no longer provides, which breaks XML parsing and
+therefore pip. `ocr/run.sh` points at Homebrew's own expat to work around it.
+
 ## Running the bot
 
 From **this folder**:

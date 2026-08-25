@@ -71,6 +71,19 @@ const envSchema = z.object({
     (value) => (typeof value === "string" && value.trim() !== "" ? Number(value) : 30000),
     z.number().int().positive(),
   ),
+
+  /** Where the local OCR service listens. Started separately — see ocr/run.sh. */
+  OCR_SERVICE_URL: blankAsUndefined.pipe(z.string().default("http://127.0.0.1:8765")),
+
+  /**
+   * A receipt takes about 4s to read. This is the ceiling before the pipeline
+   * calls it a failure rather than a slow success — generous, because timing out
+   * a receipt that would have worked is worse than making someone wait.
+   */
+  OCR_TIMEOUT_MS: z.preprocess(
+    (value) => (typeof value === "string" && value.trim() !== "" ? Number(value) : 30000),
+    z.number().int().positive(),
+  ),
 });
 
 export const env = envSchema.parse(process.env);

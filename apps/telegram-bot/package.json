@@ -18,7 +18,9 @@
     "test:chat": "tsx src/scripts/test-chat.ts",
     "test:latency": "tsx src/scripts/test-latency.ts",
     "test:admin": "tsx src/scripts/test-admin-report.ts",
-    "channel:id": "tsx src/scripts/find-chat-id.ts"
+    "channel:id": "tsx src/scripts/find-chat-id.ts",
+    "test:extract": "tsx src/scripts/test-extract.ts",
+    "ocr": "./ocr/run.sh"
   },
   "dependencies": {
     "dotenv": "^17.2.1",

@@ -1,6 +1,7 @@
 import { env, requireTelegramToken } from "./config/env.js";
 import { router } from "./core/router.js";
 import { disposeNlu, warmUpNlu } from "./core/nlu/index.js";
+import { isOcrReachable } from "./core/receipt/ocr-client.js";
 import { closeDatabase, connectToDatabase } from "./db/index.js";
 import { logger } from "./logger.js";
 import { createTelegramAdapter } from "./transport/telegram/adapter.js";
@@ -24,6 +25,17 @@ async function main(): Promise<void> {
     if (!ready) logger.warn("running without the NLU model — pattern fallback only");
   } else {
     logger.info("NLU disabled by configuration — pattern fallback only");
+  }
+
+  // Checked at startup rather than on someone's first receipt: a missing OCR
+  // service is an operator problem, and finding out now beats finding out from
+  // a tester who got an apology instead of their transaction.
+  if (!(await isOcrReachable())) {
+    logger.warn("OCR service not reachable — receipts will fail until it is started", {
+      hint: "run ./ocr/run.sh in a second terminal",
+    });
+  } else {
+    logger.info("OCR service ready");
   }
 
   const adapter = createTelegramAdapter(token, router);
