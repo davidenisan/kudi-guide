@@ -34,8 +34,14 @@ const envSchema = z.object({
   NLU_ENABLED: blankAsUndefined
     .pipe(z.enum(["true", "false"]).default("true"))
     .transform((value) => value === "true"),
+  /**
+   * 3B is the floor for the conversational replies. The 1.5B classifies well
+   * enough, but asked to write a reply it repeats the message back verbatim and
+   * occasionally emits its own prompt, which no guardrail can turn into
+   * something worth sending.
+   */
   NLU_MODEL_URI: blankAsUndefined.pipe(
-    z.string().default("hf:Qwen/Qwen2.5-1.5B-Instruct-GGUF/qwen2.5-1.5b-instruct-q4_k_m.gguf"),
+    z.string().default("hf:Qwen/Qwen2.5-3B-Instruct-GGUF/qwen2.5-3b-instruct-q4_k_m.gguf"),
   ),
   /**
    * Private channel that failed extractions are reported to. Optional: without
@@ -53,9 +59,16 @@ const envSchema = z.object({
     .pipe(z.enum(["true", "false"]).default("false"))
     .transform((value) => value === "true"),
 
-  /** Past this, give up and fall back to the deterministic matcher. */
+  /**
+   * Past this, give up and fall back to the deterministic matcher.
+   *
+   * Generous because of one request: the warm-up, which evaluates the whole
+   * system prompt cold and took over 15s on the 3B. Timing that one out is
+   * self-defeating — the point of warming up is that no real message has to pay
+   * for it. Once warm, a message takes 1-3s and never approaches this.
+   */
   NLU_TIMEOUT_MS: z.preprocess(
-    (value) => (typeof value === "string" && value.trim() !== "" ? Number(value) : 15000),
+    (value) => (typeof value === "string" && value.trim() !== "" ? Number(value) : 30000),
     z.number().int().positive(),
   ),
 });

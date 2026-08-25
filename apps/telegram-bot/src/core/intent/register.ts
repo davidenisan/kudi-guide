@@ -156,3 +156,37 @@ const QUESTION = /\b(how|what|wetin|which|where|when|why|hw|show|tell me)\b|\?/i
 export function looksLikeTypedExpense(text: string): boolean {
   return SPENDING_VERB.test(text) && AMOUNT.test(text) && !QUESTION.test(text);
 }
+
+/**
+ * Bare reactions to whatever the bot just said: "why not", "that's it?", "so?".
+ *
+ * These carry no subject at all — every word in them points backwards at the
+ * previous message. Asked to label one on its own, the model has nothing to go
+ * on and guesses: across runs "why not" came back as request_summary, then as
+ * request_undo at medium confidence, which is one confirmation away from
+ * offering to delete a transaction because someone asked a question.
+ *
+ * So they are recognised here instead, and sent straight to the reading that
+ * has the previous message in it. Same reasoning as looksLikeTypedExpense: when
+ * the model is unreliable on a small, enumerable class of message, and the
+ * consequence of guessing is bad, the class is settled in code.
+ *
+ * Deliberately exact matches only. "why not just send it" is a real sentence
+ * with content of its own and goes to the model like anything else.
+ */
+const BARE_FOLLOW_UPS = new Set([
+  "why", "why not", "why now", "why so", "how come", "says who", "and", "so", "then",
+  "thats it", "that s it", "is that it", "is that all", "thats all", "that s all",
+  "you sure", "are you sure", "really", "for real", "seriously", "na so", "abi", "how",
+  "what else", "anything else", "and then", "so what", "what now", "meaning",
+]);
+
+export function isBareFollowUp(text: string): boolean {
+  const normalized = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  return BARE_FOLLOW_UPS.has(normalized);
+}

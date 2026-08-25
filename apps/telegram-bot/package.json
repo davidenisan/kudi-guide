@@ -15,6 +15,7 @@
     "test:router": "tsx src/scripts/test-router.ts",
     "model:fetch": "tsx src/scripts/fetch-model.ts",
     "test:nlu": "tsx src/scripts/test-nlu.ts",
+    "test:chat": "tsx src/scripts/test-chat.ts",
     "test:latency": "tsx src/scripts/test-latency.ts",
     "test:admin": "tsx src/scripts/test-admin-report.ts",
     "channel:id": "tsx src/scripts/find-chat-id.ts"

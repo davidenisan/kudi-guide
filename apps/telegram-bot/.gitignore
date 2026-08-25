@@ -5,3 +5,7 @@ testset/
 # Raw uploaded payloads and rejected-extraction logs (Sections 2 and 8).
 storage/
 models/
+
+# Python virtualenv for the OCR service — rebuilt from requirements.txt.
+ocr/.venv/
+ocr/__pycache__/

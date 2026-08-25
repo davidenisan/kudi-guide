@@ -1,4 +1,5 @@
 import { logger } from "../logger.js";
+import type { Turn } from "./conversation.js";
 import { ACT_THRESHOLD, classifyIntent, smallTalkFlavor } from "./intent/classify.js";
 import type { Intent } from "./intent/patterns.js";
 import { expandEmoji } from "./intent/normalize.js";
@@ -18,7 +19,7 @@ import type { NluConfidence } from "./nlu/schema.js";
  */
 
 export type Register = "pidgin" | "standard";
-export type SmallTalkKind = "greeting" | "gratitude" | "acknowledgement" | "capability";
+export type SmallTalkKind = "greeting" | "gratitude" | "acknowledgement" | "capability" | "chitchat";
 export type Period = "this_month" | "last_month" | "today" | null;
 export type UnclearReason = "out_of_scope" | "not_understood";
 
@@ -60,7 +61,7 @@ function actionFor(intent: Intent, confidence: NluConfidence, text: string): "ac
   return words.length >= 2 ? "act" : "confirm";
 }
 
-export async function understand(text: string): Promise<Understanding> {
+export async function understand(text: string, history: readonly Turn[] = []): Promise<Understanding> {
   // Register is a property of the words themselves, not something to interpret.
   const register = detectRegister(text);
 
@@ -101,7 +102,7 @@ export async function understand(text: string): Promise<Understanding> {
   }
 
   if (isNluEnabled()) {
-    const interpretation = await interpretMessage(prepared);
+    const interpretation = await interpretMessage(prepared, history);
 
     if (interpretation) {
       // A summary guess the model itself calls low-confidence is not worth
@@ -152,13 +153,23 @@ function fromPatterns(text: string, register: Register): Understanding {
   };
 }
 
+/**
+ * Note "chitchat" rather than "greeting" as the default.
+ *
+ * The old default was the bug behind the flattest replies in testing: any small
+ * talk the model couldn't place became a greeting, and a greeting is answered
+ * with a wave. Chitchat is the honest default — it says "this is conversation,
+ * read it and answer it" instead of asserting something about the message that
+ * may well be false.
+ */
 function smallTalkKindFrom(kind: string): SmallTalkKind {
   switch (kind) {
+    case "greeting":
     case "gratitude":
     case "acknowledgement":
     case "capability":
       return kind;
     default:
-      return "greeting";
+      return "chitchat";
   }
 }

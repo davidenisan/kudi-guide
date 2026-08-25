@@ -19,7 +19,8 @@
     "bot:test:router": "npm --prefix apps/telegram-bot run test:router",
     "bot:typecheck": "npm --prefix apps/telegram-bot run typecheck",
     "bot:model:fetch": "npm --prefix apps/telegram-bot run model:fetch",
-    "bot:test:nlu": "npm --prefix apps/telegram-bot run test:nlu"
+    "bot:test:nlu": "npm --prefix apps/telegram-bot run test:nlu",
+    "bot:test:chat": "npm --prefix apps/telegram-bot run test:chat"
   },
   "devDependencies": {
     "typescript": "^5.9.2"

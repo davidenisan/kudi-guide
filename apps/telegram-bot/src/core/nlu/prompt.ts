@@ -1,3 +1,4 @@
+import type { Turn } from "../conversation.js";
 import { CATEGORIES } from "../types.js";
 
 /**
@@ -20,10 +21,17 @@ Work through these in order and stop at the first that fits:
 0. Are they STATING an expense rather than asking about one? "I spent 4000 on transport", "paid 2k for fuel", "bought airtime 500" — a statement with an amount in it is not a question. -> unclear, out_of_scope
 1. Are they asking what they have spent, or about money that has gone out? -> request_summary
 2. Are they saying something you recorded is wrong, or asking you to take it back out? -> request_undo
-3. Is the message ONLY a greeting, thanks, an acknowledgement, or a question about what you can do? -> small_talk
+   Telling you to ignore, forget, cancel or not mind something is the same request: "no mind that one", "forget am", "cancel the last one" are all request_undo, never small talk.
+3. Is the message ONLY conversation, with no request anywhere in it — a greeting, thanks, an acknowledgement, a question about what you can do, or ordinary chat aimed at the assistant itself? -> small_talk
 4. Anything else -> unclear
 
-small_talk is not a catch-all. If the person is asking you for something, it is never small_talk.
+small_talk covers talking TO the assistant, including complaints about it, jokes, teasing, and questions about it. If the person is asking you to DO something, or asking about the world, it is never small_talk.
+
+A bare mention of their money, with no verb and no question mark, is still a summary request: "my expenses", "my spending", "summary", "my expences". They are asking to see it.
+
+request_summary requires MONEY in the message: what they spent, what has gone out, a total, a breakdown, what is left. A question with no money in it is not a summary request, however question-like it sounds. "why not", "that's it?", "how do i add it", "says who", "you sure?" are not summary requests. When a short question has no money in it and you cannot tell what it refers to, the answer is unclear / not_understood — say that honestly instead of guessing at summary.
+
+Asking HOW to use you — how to add something, how to send a receipt, what you know how to do — is small_talk / capability, not request_summary and not request_undo.
 
 Telling you about an expense in words instead of sending a receipt is out_of_scope. "I spent 4000 on transport", "add 2k for food", "log 500 airtime" — you cannot record spending from a typed message, only from a receipt image. This is NOT a summary request: they are telling you something, not asking.
 
@@ -48,12 +56,16 @@ small_talk_kind — only when intent is small_talk, otherwise "none":
 - gratitude: thanks, thank you, God bless
 - acknowledgement: ok, alright, got it, noted, a bare thumbs up
 - capability: what can you do, how does this work, who are you, help
+- chitchat: anything else said TO the assistant — "you're boring", "you no dey talk", "how was your day", "are you a robot", teasing, complaints about your replies, a remark about the conversation itself. If it is conversation but none of the four above, it is chitchat, NOT greeting.
+  chitchat is not a second catch-all. It never covers a request for advice, a question about their money, or an instruction to do something — those are request_summary, request_undo, or unclear.
 
 unclear_reason — only when intent is unclear, otherwise "none":
 - out_of_scope: you understood them perfectly well, but this assistant does not do that. Loans, budgets, savings plans, bank connections, dashboards, advice about spending, the weather, the news, anything about the world.
 - not_understood: you genuinely could not tell what they meant. Random characters, a bare number, a fragment with no clue in it.
 
 period — only when intent is request_summary and a period is named, otherwise "none": this_month, last_month, today.
+
+You are sometimes told what you last said to the person, because their message did not stand on its own — "and last month?", "why not?", "that's it?". When that happens, work out what THEY are asking now, given what you just said. Do not label your own line, and do not carry over the topic of the earlier exchange unless their message is plainly a continuation of it.
 
 Examples:
 "how much have i spent this month" -> {"intent":"request_summary","confidence":"high","small_talk_kind":"none","unclear_reason":"none","period":"this_month"}
@@ -72,7 +84,19 @@ Examples:
 "\ud83d\udc4d" -> {"intent":"small_talk","confidence":"high","small_talk_kind":"acknowledgement","unclear_reason":"none","period":"none"}
 "what can you do" -> {"intent":"small_talk","confidence":"high","small_talk_kind":"capability","unclear_reason":"none","period":"none"}
 "help" -> {"intent":"small_talk","confidence":"high","small_talk_kind":"capability","unclear_reason":"none","period":"none"}
+"you arent fun to chat with frfr" -> {"intent":"small_talk","confidence":"high","small_talk_kind":"chitchat","unclear_reason":"none","period":"none"}
+"you no dey talk like person" -> {"intent":"small_talk","confidence":"high","small_talk_kind":"chitchat","unclear_reason":"none","period":"none"}
+"are you a robot" -> {"intent":"small_talk","confidence":"high","small_talk_kind":"chitchat","unclear_reason":"none","period":"none"}
+"how was your day" -> {"intent":"small_talk","confidence":"high","small_talk_kind":"chitchat","unclear_reason":"none","period":"none"}
+"lol you funny" -> {"intent":"small_talk","confidence":"high","small_talk_kind":"chitchat","unclear_reason":"none","period":"none"}
+"why you dey answer like that" -> {"intent":"small_talk","confidence":"medium","small_talk_kind":"chitchat","unclear_reason":"none","period":"none"}
 "you sabi read receipt" -> {"intent":"small_talk","confidence":"medium","small_talk_kind":"capability","unclear_reason":"none","period":"none"}
+"abeg wetin you sabi do" -> {"intent":"small_talk","confidence":"high","small_talk_kind":"capability","unclear_reason":"none","period":"none"}
+"how do i add it" -> {"intent":"small_talk","confidence":"high","small_talk_kind":"capability","unclear_reason":"none","period":"none"}
+"how i go take send am" -> {"intent":"small_talk","confidence":"medium","small_talk_kind":"capability","unclear_reason":"none","period":"none"}
+"why not" -> {"intent":"unclear","confidence":"medium","small_talk_kind":"none","unclear_reason":"not_understood","period":"none"}
+"that's it?" -> {"intent":"unclear","confidence":"medium","small_talk_kind":"none","unclear_reason":"not_understood","period":"none"}
+"why now" -> {"intent":"unclear","confidence":"medium","small_talk_kind":"none","unclear_reason":"not_understood","period":"none"}
 "how my account dey" -> {"intent":"request_summary","confidence":"medium","small_talk_kind":"none","unclear_reason":"none","period":"none"}
 "comot the thing" -> {"intent":"request_undo","confidence":"medium","small_talk_kind":"none","unclear_reason":"none","period":"none"}
 "i no want am again" -> {"intent":"request_undo","confidence":"medium","small_talk_kind":"none","unclear_reason":"none","period":"none"}
@@ -119,8 +143,41 @@ Examples:
 
 Reply with JSON only.`;
 
+/** The ordinary case: the message on its own, exactly as it arrived. */
 export function intentUserPrompt(text: string): string {
   return `Message: ${JSON.stringify(text)}`;
+}
+
+/**
+ * The second look, for a message the model could not place on its own.
+ *
+ * Context is deliberately withheld from the first attempt. Handing a small model
+ * the preceding turns makes it label the conversation instead of the message:
+ * with a greeting two turns back, "abeg wetin you sabi do" came back as a
+ * greeting, and after one summary question "abeg comot am" came back as another
+ * summary request. Both are worse failures than the one context was meant to
+ * fix, and they hit messages that were perfectly clear on their own.
+ *
+ * So context is spent only where the message alone genuinely was not enough —
+ * "why not?", "that's it?", "and last month?" — and only the bot's own last line
+ * is given, because that is what such a message is answering. A reading that was
+ * already confident is never revisited, so this cannot contaminate one.
+ */
+export function followUpUserPrompt(text: string, lastBotReply: string): string {
+  return [
+    "Their message on its own was not enough to label.",
+    `You had just said to them: ${JSON.stringify(lastBotReply)}`,
+    `Their reply: ${JSON.stringify(text)}`,
+    "What are THEY asking for now?",
+  ].join("\n");
+}
+
+/** The bot's most recent line, if there is one worth showing. */
+export function lastBotReply(history: readonly Turn[]): string | null {
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    if (history[index].role === "bot") return history[index].text;
+  }
+  return null;
 }
 
 export function categoryUserPrompt(text: string, merchant: string | null): string {

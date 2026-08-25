@@ -1,18 +1,24 @@
 import { getOrCreateUser, getPendingCategoryTransaction } from "../db/index.js";
 import { logger } from "../logger.js";
-import { setPendingUndo, takePendingUndo } from "./conversation.js";
+import {
+  recentTurns,
+  rememberBotReply,
+  rememberUserMessage,
+  setPendingUndo,
+  takePendingUndo,
+} from "./conversation.js";
 import { handleCategoryReply } from "./handlers/category.js";
 import { handleReceipt } from "./handlers/receipt.js";
 import { handleSummary } from "./handlers/summary.js";
 import { handleConfirmedUndo, handleUndo } from "./handlers/undo.js";
+import { converse } from "./converse.js";
 import { classifyConfirmation } from "./intent/classify.js";
 import { parseCommand } from "./intent/normalize.js";
 import type { IncomingMessage, MessageHandler, OutgoingReply } from "./message.js";
 import { isSupportedReceiptMedia } from "./message.js";
 import * as replies from "./replies.js";
 import { recordForReview } from "./review-log.js";
-import { composeReply, type ReplyContext } from "./nlu/respond.js";
-import { understand, type Understanding } from "./understand.js";
+import { understand } from "./understand.js";
 
 /**
  * The message router (Section 2).
@@ -31,8 +37,26 @@ export const router: MessageHandler = async (message: IncomingMessage): Promise<
   // A user record is created on first contact. No signup, no verification.
   await getOrCreateUser(message.userId);
 
-  return message.kind === "media" ? routeMedia(message) : routeText(message);
+  const reply = message.kind === "media" ? await routeMedia(message) : await routeText(message);
+
+  // Both sides of the exchange are kept for the next few minutes, so the next
+  // message can be read in the light of this one. Recorded after handling, not
+  // before, so nothing downstream sees the current message twice.
+  rememberUserMessage(message.userId, describeForTranscript(message));
+  if (reply) rememberBotReply(message.userId, reply.text);
+
+  return reply;
 };
+
+/**
+ * What a message looks like in the transcript. Media has no text, but "they
+ * sent a receipt" is exactly the context that makes the next message ("did you
+ * get it?") readable.
+ */
+function describeForTranscript(message: IncomingMessage): string {
+  if (message.kind === "text") return message.text ?? "";
+  return isSupportedReceiptMedia(message.mimeType) ? "[sent a receipt image]" : "[sent a file]";
+}
 
 // ---------------------------------------------------------------------------
 
@@ -99,9 +123,11 @@ async function routeText(message: IncomingMessage): Promise<OutgoingReply | null
     return handleCategoryReply(userId, text, pendingCategory);
   }
 
-  // 4. Understanding. The local model reads the message; this code decides what
-  //    that permits. See core/understand.ts for the split.
-  const reading = await understand(text);
+  // 4. Understanding. The local model reads the message — in the light of the
+  //    last few turns, so follow-ups and reactions are readable — and this code
+  //    decides what that permits. See core/understand.ts for the split.
+  const history = recentTurns(userId);
+  const reading = await understand(text, history);
   logger.info("understood text", {
     userId,
     intent: reading.intent,
@@ -149,12 +175,7 @@ async function routeText(message: IncomingMessage): Promise<OutgoingReply | null
       };
 
     case "small_talk":
-      return {
-        text: await conversationalReply(
-          { text, name: message.userName, situation: reading.smallTalkKind },
-          () => smallTalkReply(reading, userId),
-        ),
-      };
+      return { text: await converse({ userId, text, userName: message.userName, reading, history }) };
 
     case "unclear":
       // Section 3: log every unclear message, now with which layer produced it.
@@ -167,57 +188,9 @@ async function routeText(message: IncomingMessage): Promise<OutgoingReply | null
       });
 
       // Understood-but-unsupported gets a straight answer about what the bot
-      // does; genuinely-didn't-follow gets Section 3's question.
-      return {
-        text: await conversationalReply(
-          { text, name: message.userName, situation: reading.unclearReason },
-          () =>
-            reading.unclearReason === "out_of_scope"
-              ? replies.pick(
-                  "out_of_scope",
-                  replies.byRegister(register, replies.OUT_OF_SCOPE, replies.OUT_OF_SCOPE_PIDGIN),
-                  userId,
-                )
-              : replies.pick("unclear", replies.byRegister(register, replies.UNCLEAR, replies.UNCLEAR_PIDGIN), userId),
-        ),
-      };
-  }
-}
-
-/**
- * Replies where there is no figure to get wrong, so the model writes them.
- *
- * Anything carrying an amount, merchant, category or total goes through a
- * template instead — those are built from the database and must be exact. Here
- * there is no fact at stake, and fixed strings were what made the bot read like
- * a phone tree.
- *
- * The fallback runs whenever generation is unavailable, too slow, or trips a
- * guardrail, so a failure costs liveliness and nothing else.
- */
-async function conversationalReply(context: ReplyContext, fallback: () => string): Promise<string> {
-  const generated = await composeReply(context);
-  return generated ?? fallback();
-}
-
-/** Small talk is one intent but four different things worth saying back. */
-function smallTalkReply(reading: Understanding, userId: number): string {
-  const { register } = reading;
-
-  switch (reading.smallTalkKind) {
-    case "gratitude":
-      return replies.pick("gratitude", replies.byRegister(register, replies.GRATITUDE, replies.GRATITUDE_PIDGIN), userId);
-    case "acknowledgement":
-      return replies.pick(
-        "ack",
-        replies.byRegister(register, replies.ACKNOWLEDGEMENT, replies.ACKNOWLEDGEMENT_PIDGIN),
-        userId,
-      );
-    case "capability":
-      // Kept in standard English — it's the one reply carrying real information.
-      return replies.pick("capability", replies.CAPABILITY, userId);
-    case "greeting":
-      return replies.pick("small_talk", replies.byRegister(register, replies.SMALL_TALK, replies.SMALL_TALK_PIDGIN), userId);
+      // does; genuinely-didn't-follow gets Section 3's question. Both are
+      // written to the message in front of them — see core/converse.ts.
+      return { text: await converse({ userId, text, userName: message.userName, reading, history }) };
   }
 }
 

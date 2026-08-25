@@ -50,6 +50,18 @@ export const GRATITUDE = ["Anytime 👍", "No wahala.", "Sure thing.", "Anytime.
 export const ACKNOWLEDGEMENT = ["👍", "Got it.", "Sure.", "👌", "Alright."];
 
 /**
+ * Banter, teasing, a remark about the conversation itself.
+ *
+ * These are holding lines, not answers — there is no fixed phrase that responds
+ * to "you're not fun to chat with", which is exactly why this situation goes to
+ * the model first (see nlu/respond.ts). What is here has to be safe against any
+ * remark at all, so it acknowledges without claiming to have understood.
+ */
+export const CHITCHAT = ["Ha — fair enough.", "I hear you.", "Fair enough 🙂", "Noted."];
+
+export const CHITCHAT_PIDGIN = ["I hear you o.", "Na true.", "I don hear 🙂", "No wahala."];
+
+/**
  * "What can you do?" — a fair question that deserves a real answer. Describing
  * what the bot does is not advice about the user's money, so this stays on the
  * right side of Section 3's line.

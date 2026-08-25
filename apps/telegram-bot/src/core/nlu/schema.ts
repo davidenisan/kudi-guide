@@ -32,7 +32,21 @@ export type NluIntent = (typeof INTENTS)[number];
 export const CONFIDENCES = ["high", "medium", "low"] as const;
 export type NluConfidence = (typeof CONFIDENCES)[number];
 
-export const SMALL_TALK_KINDS = ["greeting", "gratitude", "acknowledgement", "capability", "none"] as const;
+/**
+ * "chitchat" is the bucket that was missing, and its absence is most of why the
+ * bot read like a phone tree. Everything conversational that is not one of the
+ * other four — a complaint about the bot, a joke, "how was your day", "you're
+ * boring" — has no label to land on, and `smallTalkKindFrom` defaulted it to
+ * greeting. So a person saying the bot was no fun to talk to got waved at.
+ */
+export const SMALL_TALK_KINDS = [
+  "greeting",
+  "gratitude",
+  "acknowledgement",
+  "capability",
+  "chitchat",
+  "none",
+] as const;
 export type SmallTalkKind = (typeof SMALL_TALK_KINDS)[number];
 
 /** A structured hint, not a date range. The application computes actual dates. */

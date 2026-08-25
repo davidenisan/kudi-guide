@@ -9,7 +9,7 @@ sending receipts?**
 
 ## Understanding vs. doing
 
-Natural-language understanding runs on a **local instruct model** (Qwen2.5-1.5B,
+Natural-language understanding runs on a **local instruct model** (Qwen2.5-3B,
 GGUF, via `node-llama-cpp` with Metal). No API, no key, no network at runtime.
 
 The split is the important part:
@@ -21,7 +21,7 @@ The split is the important part:
 | Says `request_undo`, `high` | Chooses which transaction, and whether to ask first |
 | Says `period: this_month` | Turns that into dates and runs the query |
 | Never sees an amount | Does all arithmetic |
-| Never writes user-facing text | Picks the reply |
+| Writes replies with no figure in them | Renders every reply that carries one |
 
 The model's output is constrained by a **JSON schema grammar**, so it cannot emit
 a value outside our enums, and every field is re-validated in code afterwards.
@@ -43,13 +43,13 @@ something invalid, understanding falls back to the deterministic matcher in
 instead of breaking, not as a second system to grow. Set `NLU_ENABLED=false` to
 run on it deliberately.
 
-Measured on a 57-case corpus of the Pidgin, slang, typo and out-of-scope
-messages that came out of real testing (`npm run test:nlu`):
+Measured on a corpus of the Pidgin, slang, typo and out-of-scope messages that
+came out of real testing (`npm run test:nlu`):
 
 ```
-local model:     60/60  (100%)
-pattern matcher: 51/60  (85%)
-latency: ~1.4s per message
+local model:     67/67  (100%)
+pattern matcher: 58/67  (87%)
+latency: median ~1.3s per message
 ```
 
 Two jobs were taken *off* the model because it was measurably bad at them, and
@@ -63,15 +63,68 @@ both are surface properties of the text rather than acts of interpretation
   answered "spending summary" for `....`. Messages with no word-like content now
   resolve in under a millisecond without inference.
 
-Startup runs one throwaway interpretation to put the system prompt in the KV
-cache. Without it the first user message paid a 4-second penalty evaluating
-~1,300 tokens of prompt. `npm run test:latency` measures both numbers.
+Startup runs one throwaway request against each of the two system prompts — the
+classifier's and the reply writer's — to put both in the KV cache. Each is only
+evaluated on first use, so without this the first message of each kind paid
+seconds for a prompt every later message got for free. It costs ~30s at boot,
+once, before the bot serves anyone. `npm run test:latency` measures both ends:
+~1.4s to read a message, ~1.9s including a generated reply.
 
 The model also reports *why* a message didn't map to an intent —
 `out_of_scope` ("I understood you, I just don't do that") versus
 `not_understood` ("I didn't follow you"). Answering "did you want your spending
 summary?" to a question about the weather pretends to be confused when the bot
 understood perfectly well.
+
+## Talking back
+
+The dividing line is **data, not conversation**. Any reply carrying an amount,
+merchant, category or total is rendered from a template and filled in from the
+database — those must be exact, and a language model will cheerfully write
+₦150,000 where the truth was ₦15,000. Every other reply is written by the model
+(`core/converse.ts`, `core/nlu/respond.ts`), because a fixed string cannot answer
+what was actually said.
+
+That half used to be templates too, and it read like a phone tree. Three things
+were wrong, and they compounded:
+
+- **No bucket for banter.** `small_talk_kind` had only greeting, gratitude,
+  acknowledgement and capability, and anything else defaulted to *greeting*. A
+  tester writing "you arent fun to chat with frfr" was classified as saying
+  hello, and waved at. There is now a `chitchat` bucket, and it is the default.
+- **Generation was off for greetings and banter**, on evidence gathered while
+  those messages were arriving mislabelled — the model was being told to greet
+  someone who was complaining, and did.
+- **Nothing remembered the last turn.** Every message was read as if it were the
+  first. `conversation.ts` now keeps the last few turns per user, in memory, for
+  half an hour.
+
+Guardrails run **after** generation, in code, so they hold whatever the model
+does with its instructions. A reply is thrown away and a template used instead
+if it contains a digit (every figure it could write is invented), gives
+financial advice, claims to have logged or removed something, invents an
+ability, repeats the message back, repeats the bot's own last line, or drifts
+into mock-accent spelling. Falling back costs liveliness and nothing else.
+
+Register is mirrored: Pidgin in, Pidgin out. It is detected from the person's
+own words rather than guessed by the model, and passed in — told only "reply in
+Pidgin", a 4-bit model writes English with the vowels knocked out.
+
+Context is used **only where it helps**. Handing the classifier the preceding
+turns made it label the conversation instead of the message: with a greeting two
+turns back, "abeg wetin you sabi do" came back as a greeting, and after one
+summary question "abeg comot am" came back as another summary request. So
+classification sees one message at a time, and the previous line is brought in
+only for a message that could not be read alone — "why not", "that's it?" — and
+never lets one conclude a *request*. Reply generation sees the whole recent
+transcript, where there is nothing to get wrong.
+
+`npm run test:chat` replays whole conversations through this path, including the
+transcript that prompted the work. There is no pass/fail — you read it.
+
+The 3B model is the floor here. The 1.5B classifies acceptably but cannot write:
+asked to reply to "you arent fun to chat with frfr" it answered "you arent fun to
+chat with frfr", and it occasionally emitted its own prompt.
 
 ## Layering
 
@@ -95,10 +148,12 @@ src/
     types.ts                     domain types — no transport, no driver
     time.ts                      Lagos calendar day/month boundaries
     files.ts                     hashing and magic-byte sniffing
-    replies.ts                   phrasing variants (Section 3 tone)
-    conversation.ts              short-lived state (pending undo confirmation)
+    replies.ts                   phrasing variants, used when generation fails
+    converse.ts                  every reply with no figure in it
+    conversation.ts              pending undo confirmation + the last few turns
     review-log.ts                the log of everything we couldn't handle
-    intent/                      local intent classification
+    intent/                      frozen fallback matcher, register, junk
+    nlu/                         the local model: prompts, schema, replies
     handlers/                    receipt, category, summary, undo
   transport/telegram/adapter.ts  the only Telegram-aware file
   db/                            the only place MongoDB is imported
@@ -120,7 +175,7 @@ cd apps/telegram-bot
 npm install
 cp .env.example .env     # fill in TELEGRAM_BOT_TOKEN when you have one
 npm run db:init
-npm run model:fetch      # ~1.1 GB, once
+npm run model:fetch      # ~2.1 GB, once
 ```
 
 `model:fetch` downloads the local NLU model into `models/` (gitignored). The bot
@@ -158,8 +213,9 @@ Long polling — no public URL, no TLS, no tunnel. Ctrl-C stops it cleanly.
 | `npm run db:init` | Create collections + indexes, print what exists |
 | `npm run db:stats` | Document counts; pass a Telegram user id for their recent rows |
 | `npm run db:smoke` | Exercise every db operation against a scratch user, then clean up |
-| `npm run model:fetch` | Download the local NLU model (~1.1 GB, once) |
-| `npm run test:nlu` | Local model vs. frozen matcher on the 57-case corpus |
+| `npm run model:fetch` | Download the local NLU model (~2.1 GB, once) |
+| `npm run test:nlu` | Local model vs. frozen matcher on the labelled corpus |
+| `npm run test:chat` | Replay whole conversations through the conversational path |
 | `npm run test:latency` | Startup cost and per-message latency |
 | `npm run test:intent` | Fallback matcher accuracy against a labelled corpus |
 | `npm run test:router` | Drive a whole conversation through the core, no Telegram involved |
