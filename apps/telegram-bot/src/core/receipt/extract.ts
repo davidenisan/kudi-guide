@@ -74,7 +74,19 @@ const LABELS = {
     "payment reference",
     "receipt no",
   ],
-  type: ["transaction type", "type", "transaction", "payment type", "channel"],
+  // "transaction" alone is not a type label: it matches the "Transaction
+  // Successful" banner that sits at the top of most receipts, and then anchors
+  // to whatever name follows it. Kuda returned its merchant as the type that way.
+  type: [
+    "transaction type",
+    "type",
+    "payment type",
+    "channel",
+    "category",
+    "narration",
+    "description",
+    "purpose",
+  ],
   sender: ["sender", "sender name", "from", "paid from", "payer", "debit account", "source account"],
 } as const;
 
@@ -100,35 +112,47 @@ const RECEIPT_MARKERS = [
 // geometry
 // ---------------------------------------------------------------------------
 
-function centre(line: OcrLine): { x: number; y: number } | null {
-  if (!line.box) return null;
-  return {
-    x: (line.box.left + line.box.right) / 2,
-    y: (line.box.top + line.box.bottom) / 2,
-  };
-}
-
 /**
  * How near a candidate is to its label, in reading order.
  *
- * Bank apps put the value either directly beneath the label or on the same line
- * to the right, so both are cheap; anything above the label is almost certainly
- * a different field and is pushed far away. Vertical distance dominates because
- * a value two rows down is much less likely to belong to this label than one
- * sitting to its right.
+ * Two arrangements have to be told apart, because banks use both. Some stack the
+ * value under the label; others put label and value side by side across the
+ * width of the screen. A single distance formula cannot serve both: weighting
+ * vertical distance heavily made a two-column receipt pick the label of the row
+ * *below* over the value sitting right beside it, which is how "Narration" came
+ * back as a merchant name.
+ *
+ * So same-row is recognised as its own case and always wins when it exists. A
+ * value beside its label is unambiguous; a value below it is a guess about
+ * layout, and only reasonable when nothing sits beside it.
  */
 function proximity(label: OcrLine, candidate: OcrLine): number {
-  const a = centre(label);
-  const b = centre(candidate);
+  const a = label.box;
+  const b = candidate.box;
   if (!a || !b) return Number.POSITIVE_INFINITY;
 
-  const dy = b.y - a.y;
-  const dx = Math.abs(b.x - a.x);
+  const labelMiddle = (a.top + a.bottom) / 2;
+  const candidateMiddle = (b.top + b.bottom) / 2;
+  const lineHeight = Math.max(a.bottom - a.top, 8);
+
+  // Side by side: vertical centres within a line of each other.
+  if (Math.abs(candidateMiddle - labelMiddle) <= lineHeight * 0.7) {
+    // Must actually be to the right. A box overlapping the label horizontally is
+    // the label itself, or a neighbouring column that reads before it.
+    if (b.left < a.right - 2) return Number.POSITIVE_INFINITY;
+    return (b.left - a.right) * 0.05;
+  }
 
   // Above the label: wrong direction for every layout we care about.
-  if (dy < -8) return Number.POSITIVE_INFINITY;
+  if (candidateMiddle < labelMiddle) return Number.POSITIVE_INFINITY;
 
-  return Math.abs(dy) * 2 + dx * 0.5;
+  // Beneath: nearer is better, and directly beneath beats offset to one side.
+  // Offset well past any same-row match so the two cases never compete.
+  return 1000 + (candidateMiddle - labelMiddle) * 1.5 + Math.abs(centreX(b) - centreX(a)) * 0.8;
+}
+
+function centreX(box: { left: number; right: number }): number {
+  return (box.left + box.right) / 2;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,6 +165,17 @@ function normalizeLabel(text: string): string {
     .replace(/[^a-z\s]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+/**
+ * Every label word, from every field. A line that is exactly one of these is a
+ * label, not a value — without this, a two-column receipt happily returned
+ * "Narration" as the merchant and "Status" as the reference number.
+ */
+const ALL_LABELS: ReadonlySet<string> = new Set(Object.values(LABELS).flat());
+
+function isLabelLine(line: OcrLine): boolean {
+  return ALL_LABELS.has(normalizeLabel(line.text));
 }
 
 interface LabelHit {
@@ -194,7 +229,7 @@ function valueFor(
     }
 
     const candidates = lines
-      .filter((line) => line !== hit.line && accept(line.text))
+      .filter((line) => line !== hit.line && !isLabelLine(line) && accept(line.text))
       .map((line) => ({ line, distance: proximity(hit.line, line) }))
       .filter((entry) => Number.isFinite(entry.distance))
       .sort((a, b) => a.distance - b.distance);
@@ -242,14 +277,20 @@ export function parseAmountToKobo(text: string): number | null {
   return Number.isSafeInteger(kobo) ? kobo : null;
 }
 
-const REFERENCE = /\b([A-Z0-9]{6,32})\b/;
+/**
+ * Hyphens and slashes are part of the reference, not a boundary in it:
+ * "KUDA-TRX-88213094" was being truncated to "88213094" by a stricter pattern.
+ */
+const REFERENCE = /\b([A-Z0-9][A-Z0-9\-_/]{4,30}[A-Z0-9])\b/;
 
 function looksLikeReference(text: string): boolean {
   const candidate = text.trim().toUpperCase();
   if (!REFERENCE.test(candidate)) return false;
   // A plain number with grouping is money; a bare short number is not a ref.
   if (/^\d{1,3}([,\s]\d{3})+/.test(candidate)) return false;
-  return true;
+  // Every real reference carries digits. Without this, any long uppercase word
+  // qualifies, and "SUCCESSFUL" and "STATUS" both did.
+  return /\d/.test(candidate);
 }
 
 function looksLikeDate(text: string): boolean {
@@ -324,6 +365,39 @@ function field<T>(value: T, ocrConfidence: number, quality: number, sourceText: 
   };
 }
 
+/**
+ * The amount when nothing is labelled "Amount".
+ *
+ * Some apps don't label it at all — Kuda shows the figure alone and large near
+ * the top, and the label-anchored pass finds nothing, which left the one field
+ * the spec says to be most careful about empty.
+ *
+ * These layouts all lean on the same visual convention: the amount is the
+ * biggest thing on the screen. So the fallback takes the money-shaped line with
+ * the tallest text, and only when it is meaningfully taller than the body text —
+ * a receipt where everything is the same size gives no signal, and guessing
+ * there would be worse than asking.
+ *
+ * Reported at reduced confidence, because this is a reading of the layout rather
+ * than of a label. Downstream that is the difference between logging it and
+ * checking first.
+ */
+function prominentAmount(lines: OcrLine[]): { line: OcrLine; text: string; quality: number } | null {
+  const withHeight = lines
+    .filter((line) => line.box && looksLikeMoney(line.text))
+    .map((line) => ({ line, height: line.box!.bottom - line.box!.top }));
+
+  if (withHeight.length === 0) return null;
+
+  const heights = lines.filter((line) => line.box).map((line) => line.box!.bottom - line.box!.top);
+  const median = [...heights].sort((a, b) => a - b)[Math.floor(heights.length / 2)] ?? 0;
+
+  const tallest = withHeight.sort((a, b) => b.height - a.height)[0];
+  if (tallest.height < median * 1.25) return null;
+
+  return { line: tallest.line, text: tallest.line.text, quality: 0.6 };
+}
+
 export function extractFields(result: OcrResult): ExtractedReceipt {
   const lines = result.lines;
   const text = plainText(result);
@@ -331,7 +405,8 @@ export function extractFields(result: OcrResult): ExtractedReceipt {
   // A PDF's own text layer is exact; OCR confidence is only meaningful for pixels.
   const trust = (line: OcrLine): number => (result.source === "pdf-text-layer" ? 1 : line.confidence);
 
-  const amountHit = valueFor(lines, findLabels(lines, LABELS.amount), looksLikeMoney);
+  const amountHit =
+    valueFor(lines, findLabels(lines, LABELS.amount), looksLikeMoney) ?? prominentAmount(lines);
   const amountKobo = amountHit ? parseAmountToKobo(amountHit.text) : null;
 
   const dateHit = valueFor(lines, findLabels(lines, LABELS.date), looksLikeDate);
