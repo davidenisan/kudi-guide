@@ -28,7 +28,7 @@ const BANKS: BankSignature[] = [
   { name: "OPay", markers: ["opay", "paycom"] },
   { name: "PalmPay", markers: ["palmpay", "palm pay"] },
   { name: "Moniepoint", markers: ["moniepoint", "monie point"] },
-  { name: "Access", markers: ["access bank", "accessbank", "diamond bank"] },
+  { name: "Access", markers: ["access bank", "accessbank", "accessmore", "diamond bank"] },
   { name: "Zenith", markers: ["zenith"] },
   { name: "UBA", markers: ["united bank for africa", "uba "] },
   { name: "First Bank", markers: ["firstbank", "first bank", "firstmonie"] },
@@ -49,16 +49,28 @@ const BANKS: BankSignature[] = [
 /**
  * Reads the provider out of OCR text. Returns null rather than guessing — an
  * honest "unrecognised" is more useful in a report than a wrong attribution.
+ *
+ * The earliest mention wins, not the first entry in the list below. More than
+ * one bank routinely appears on a transfer receipt: the issuer brands the top,
+ * and the recipient's bank is named down in the beneficiary block. An Access
+ * receipt paying into a Moniepoint account was being filed under Moniepoint
+ * purely because that name came first in this file, which would have blamed the
+ * wrong provider in every accuracy report.
  */
 export function detectBank(ocrText: string): string | null {
-  const haystack = ` ${ocrText.toLowerCase().replace(/\s+/g, " ")} `;
+  const haystack = ocrText.toLowerCase().replace(/\s+/g, " ");
+
+  let best: { name: string; at: number } | null = null;
 
   for (const bank of BANKS) {
-    if (bank.markers.some((marker) => haystack.includes(marker))) {
-      return bank.name;
+    for (const marker of bank.markers) {
+      const at = haystack.indexOf(marker);
+      if (at === -1) continue;
+      if (best === null || at < best.at) best = { name: bank.name, at };
     }
   }
-  return null;
+
+  return best?.name ?? null;
 }
 
 export function knownBanks(): string[] {

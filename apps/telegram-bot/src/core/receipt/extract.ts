@@ -172,7 +172,27 @@ function normalizeLabel(text: string): string {
  * label, not a value — without this, a two-column receipt happily returned
  * "Narration" as the merchant and "Status" as the reference number.
  */
-const ALL_LABELS: ReadonlySet<string> = new Set(Object.values(LABELS).flat());
+const ALL_LABELS: ReadonlySet<string> = new Set([
+  ...Object.values(LABELS).flat(),
+  // Labels for fields we do not extract. They still have to be recognised as
+  // labels, or they get offered up as values for the field above them — an
+  // empty "Remark" row was returned as a merchant name.
+  "remark",
+  "remarks",
+  "status",
+  "transaction status",
+  "balance",
+  "account number",
+  "account name",
+  "bank",
+  "bank name",
+  "fee",
+  "charge",
+  "commission",
+  "vat",
+  "teller",
+  "branch",
+]);
 
 function isLabelLine(line: OcrLine): boolean {
   return ALL_LABELS.has(normalizeLabel(line.text));
@@ -183,6 +203,8 @@ interface LabelHit {
   index: number;
   /** How exact the match was — an exact label beats one embedded in a sentence. */
   quality: number;
+  /** Where in the vocabulary it matched. Earlier entries are more specific. */
+  rank: number;
 }
 
 function findLabels(lines: OcrLine[], vocabulary: readonly string[]): LabelHit[] {
@@ -192,24 +214,39 @@ function findLabels(lines: OcrLine[], vocabulary: readonly string[]): LabelHit[]
     const normalized = normalizeLabel(line.text);
     if (normalized === "") return;
 
-    for (const label of vocabulary) {
-      if (normalized === label) {
-        hits.push({ line, index, quality: 1 });
-        return;
-      }
-      // "Amount Paid:" and "Amount: N5,000" both anchor as well as a bare label.
+    // Exact matches are settled across the whole vocabulary before any partial
+    // match is considered. Scanning entry by entry let a loose early entry claim
+    // a line that a later entry named exactly: "reference" matched the tail of
+    // "Transaction Reference" and scored it 0.85, while "Session Id" matched
+    // exactly at 1.0 and outranked it — so the session id was returned as the
+    // transaction's reference number.
+    const exact = vocabulary.indexOf(normalized);
+    if (exact !== -1) {
+      hits.push({ line, index, quality: 1, rank: exact });
+      return;
+    }
+
+    for (let rank = 0; rank < vocabulary.length; rank += 1) {
+      const label = vocabulary[rank];
       if (normalized.startsWith(`${label} `) || normalized.endsWith(` ${label}`)) {
-        hits.push({ line, index, quality: 0.85 });
+        hits.push({ line, index, quality: 0.85, rank });
         return;
       }
+    }
+
+    for (let rank = 0; rank < vocabulary.length; rank += 1) {
+      const label = vocabulary[rank];
       if (normalized.includes(label) && normalized.length <= label.length + 12) {
-        hits.push({ line, index, quality: 0.7 });
+        hits.push({ line, index, quality: 0.7, rank });
         return;
       }
     }
   });
 
-  return hits.sort((a, b) => b.quality - a.quality);
+  // Equally exact labels are ranked by how specific they are, which is the order
+  // they are listed in: a receipt carrying both "Transaction Reference" and
+  // "Session Id" should answer with the former.
+  return hits.sort((a, b) => b.quality - a.quality || a.rank - b.rank || a.index - b.index);
 }
 
 /**
@@ -228,6 +265,16 @@ function valueFor(
       return { line: hit.line, text: inline, quality: hit.quality };
     }
 
+    // A value block beside the label. Multi-line values are common — a
+    // beneficiary is often name, account number, then bank — and the label is
+    // centred against the whole block, so the line that matters can sit a row
+    // above the label's own centre. Taking the topmost accepted line in the
+    // block picks the name rather than the bank underneath it.
+    const beside = valueColumn(lines, hit.line, accept);
+    if (beside) {
+      return { line: beside, text: beside.text, quality: hit.quality };
+    }
+
     const candidates = lines
       .filter((line) => line !== hit.line && !isLabelLine(line) && accept(line.text))
       .map((line) => ({ line, distance: proximity(hit.line, line) }))
@@ -239,6 +286,41 @@ function valueFor(
     }
   }
   return null;
+}
+
+/**
+ * Lines sitting to the right of a label, within a couple of rows of it.
+ *
+ * This is the two-column arrangement, and it has to be settled before falling
+ * back to "nearest line below". Below-ness alone put the *next label* ahead of
+ * the real value on an Access receipt: "Remark" shares the label column, so it
+ * scored closer than the beneficiary name sitting to the right, and came back
+ * as the merchant.
+ */
+function valueColumn(
+  lines: OcrLine[],
+  label: OcrLine,
+  accept: (text: string) => boolean,
+): OcrLine | null {
+  const a = label.box;
+  if (!a) return null;
+
+  const labelMiddle = (a.top + a.bottom) / 2;
+  const lineHeight = Math.max(a.bottom - a.top, 8);
+  // Wide enough for a three-line block whose label is centred against it,
+  // narrow enough that the neighbouring row does not reach in.
+  const band = lineHeight * 2.5;
+
+  return (
+    lines
+      .filter((line) => {
+        if (line === label || !line.box || isLabelLine(line)) return false;
+        if (line.box.left < a.right - 2) return false;
+        return Math.abs((line.box.top + line.box.bottom) / 2 - labelMiddle) <= band;
+      })
+      .filter((line) => accept(line.text))
+      .sort((x, y) => (x.box!.top - y.box!.top))[0] ?? null
+  );
 }
 
 /** The part of a line after "Label:" — empty when the line is only a label. */
@@ -280,8 +362,13 @@ export function parseAmountToKobo(text: string): number | null {
 /**
  * Hyphens and slashes are part of the reference, not a boundary in it:
  * "KUDA-TRX-88213094" was being truncated to "88213094" by a stricter pattern.
+ *
+ * Long, too: a NIP reference runs to 33 characters
+ * ("NXG000014260818141149252148982360"), and a 32-character cap rejected it,
+ * which quietly demoted the receipt to whatever shorter number sat nearby — the
+ * session id, a different field entirely.
  */
-const REFERENCE = /\b([A-Z0-9][A-Z0-9\-_/]{4,30}[A-Z0-9])\b/;
+const REFERENCE = /\b([A-Z0-9][A-Z0-9\-_/]{4,44}[A-Z0-9])\b/;
 
 function looksLikeReference(text: string): boolean {
   const candidate = text.trim().toUpperCase();
@@ -317,6 +404,18 @@ export function parseReceiptDate(text: string, now: Date = new Date()): Date | n
     const year = Number(named[3] ?? named[6]);
     const month = MONTHS[monthName] ?? MONTHS[monthName.slice(0, 3)];
     if (month !== undefined && day >= 1 && day <= 31) {
+      return finish(new Date(Date.UTC(year, month, day)), cleaned, now);
+    }
+  }
+
+  // 2026-08-18, ISO. Checked before the day-first pattern, which would read
+  // the leading year as a day and give up.
+  const iso = /\b(\d{4})-(\d{1,2})-(\d{1,2})\b/.exec(cleaned);
+  if (iso) {
+    const year = Number(iso[1]);
+    const month = Number(iso[2]) - 1;
+    const day = Number(iso[3]);
+    if (day >= 1 && day <= 31 && month >= 0 && month <= 11) {
       return finish(new Date(Date.UTC(year, month, day)), cleaned, now);
     }
   }
@@ -445,7 +544,13 @@ function isNameLike(text: string): boolean {
 }
 
 function cleanName(text: string): string {
-  return text.replace(/^[^:]{1,40}:\s*/, "").replace(/\s+/g, " ").trim();
+  return text
+    .replace(/^[^:]{1,40}:\s*/, "")
+    .replace(/\s+/g, " ")
+    // Receipts often print a name with a trailing separator before the account
+    // number on the next line: "DGMC SOLUTIONS LTD -".
+    .replace(/[\s\-–—:,;|]+$/, "")
+    .trim();
 }
 
 /**
