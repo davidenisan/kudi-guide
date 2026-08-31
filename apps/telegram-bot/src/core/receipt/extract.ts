@@ -1,5 +1,5 @@
 import { detectBank } from "../banks.js";
-import { plainText, type OcrLine, type OcrResult } from "./ocr-client.js";
+import { plainText, type OcrBox, type OcrLine, type OcrResult } from "./ocr-client.js";
 
 /**
  * Turning OCR output into fields, by anchoring on labels rather than positions.
@@ -58,6 +58,7 @@ const LABELS = {
     "payee",
     "credit to",
     "recipient details",
+    "biller",
   ],
   date: ["date", "transaction date", "date and time", "date & time", "payment date", "time", "transaction time"],
   reference: [
@@ -305,22 +306,59 @@ function valueColumn(
   const a = label.box;
   if (!a) return null;
 
-  const labelMiddle = (a.top + a.bottom) / 2;
-  const lineHeight = Math.max(a.bottom - a.top, 8);
-  // Wide enough for a three-line block whose label is centred against it,
-  // narrow enough that the neighbouring row does not reach in.
-  const band = lineHeight * 2.5;
+  // Bounded by the label's own neighbours, not a fixed number of pixels.
+  //
+  // A fixed band has to be tuned against whatever receipts happen to have been
+  // tested, and it does not survive a layout with different spacing: a band
+  // wide enough for a three-line beneficiary block on one receipt reached past
+  // it into the label above on another, and "Transaction Reference" came back
+  // with the beneficiary's account number. Labels stack down the page in
+  // reading order regardless of font or spacing, so the label immediately
+  // before and after this one are the true edges of its value block — nothing
+  // legitimately belongs to two labels at once.
+  const labelStack = lines
+    .filter((line): line is OcrLine & { box: OcrBox } => line.box !== null && isLabelLine(line))
+    .sort((x, y) => x.box.top - y.box.top);
+  const position = labelStack.findIndex((line) => line === label);
+  const labelMiddle = midY(a);
+
+  // The midpoint BETWEEN this label and its neighbour, not the neighbour's own
+  // position — using the neighbour's position directly made the window run
+  // from "wherever the neighbour's label sits" onward, which is nearly the
+  // whole gap and defeats the point of bounding it at all. A value block only
+  // slightly taller than one row was then free to spill straight past its own
+  // label into the next field's search, and a leaked line sitting physically
+  // higher on the page than the true value beat it under "topmost wins".
+  const top = position > 0 ? (midY(labelStack[position - 1].box) + labelMiddle) / 2 : -Infinity;
+  const bottom =
+    position !== -1 && position < labelStack.length - 1
+      ? (labelMiddle + midY(labelStack[position + 1].box)) / 2
+      : Infinity;
 
   return (
     lines
       .filter((line) => {
         if (line === label || !line.box || isLabelLine(line)) return false;
         if (line.box.left < a.right - 2) return false;
-        return Math.abs((line.box.top + line.box.bottom) / 2 - labelMiddle) <= band;
+        const middle = midY(line.box);
+        return middle > top && middle <= bottom;
       })
       .filter((line) => accept(line.text))
-      .sort((x, y) => (x.box!.top - y.box!.top))[0] ?? null
+      // Topmost first, not nearest the label's own centre. A label is
+      // centred against its whole block, so its centre sits nearest whichever
+      // *row* is in the middle — and when that row doesn't pass `accept`
+      // (an account number is not a name), "nearest centre" among what is
+      // left favours the last row over the first. A beneficiary block came
+      // back as the bank on the last line instead of the name on the first.
+      // Reading order is unambiguous here in a way distance is not: the first
+      // line of a value block is the one that matters — the name before the
+      // account number, the amount before its currency note underneath.
+      .sort((x, y) => x.box!.top - y.box!.top)[0] ?? null
   );
+}
+
+function midY(box: OcrBox): number {
+  return (box.top + box.bottom) / 2;
 }
 
 /** The part of a line after "Label:" — empty when the line is only a label. */
