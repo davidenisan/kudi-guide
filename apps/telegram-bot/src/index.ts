@@ -1,7 +1,7 @@
 import { env, requireTelegramToken } from "./config/env.js";
 import { router } from "./core/router.js";
 import { disposeNlu, warmUpNlu } from "./core/nlu/index.js";
-import { isOcrReachable } from "./core/receipt/ocr-client.js";
+import { ensureOcrService, stopOcrService } from "./ocr-supervisor.js";
 import { closeDatabase, connectToDatabase } from "./db/index.js";
 import { logger } from "./logger.js";
 import { createTelegramAdapter } from "./transport/telegram/adapter.js";
@@ -27,16 +27,12 @@ async function main(): Promise<void> {
     logger.info("NLU disabled by configuration — pattern fallback only");
   }
 
-  // Checked at startup rather than on someone's first receipt: a missing OCR
-  // service is an operator problem, and finding out now beats finding out from
-  // a tester who got an apology instead of their transaction.
-  if (!(await isOcrReachable())) {
-    logger.warn("OCR service not reachable — receipts will fail until it is started", {
-      hint: "run ./ocr/run.sh in a second terminal",
-    });
-  } else {
-    logger.info("OCR service ready");
-  }
+  // Started here rather than left for someone to remember in a second terminal
+  // — a receipt sent while nobody did that is exactly the failure this exists
+  // to prevent. Never blocks startup on failure: a missing OCR service means
+  // receipts fail until it's sorted, not that the rest of the bot should be
+  // unreachable too.
+  await ensureOcrService();
 
   const adapter = createTelegramAdapter(token, router);
   await adapter.start();
@@ -47,6 +43,7 @@ async function main(): Promise<void> {
       .stop()
       .catch((error: unknown) => logger.error("error stopping adapter", { error }))
       .finally(async () => {
+        stopOcrService();
         await disposeNlu();
         await closeDatabase();
         process.exit(0);

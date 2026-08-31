@@ -72,8 +72,19 @@ const envSchema = z.object({
     z.number().int().positive(),
   ),
 
-  /** Where the local OCR service listens. Started separately — see ocr/run.sh. */
+  /** Where the local OCR service listens. */
   OCR_SERVICE_URL: blankAsUndefined.pipe(z.string().default("http://127.0.0.1:8765")),
+
+  /**
+   * Whether this process should start the OCR service itself when
+   * OCR_SERVICE_URL points at localhost and nothing answers there yet. The
+   * point of it: two processes should not require two people remembering to
+   * start them. False when OCR runs as its own long-lived deployment — a
+   * separate container or host — that this process must not manage.
+   */
+  OCR_AUTOSTART: blankAsUndefined
+    .pipe(z.enum(["true", "false"]).default("true"))
+    .transform((value) => value === "true"),
 
   /**
    * A receipt takes about 4s to read. This is the ceiling before the pipeline
