@@ -132,6 +132,62 @@ compact_receipt(
     header_color="#5B2C87",
 )
 
+
+def opay_receipt_page(name, amount, recipient, recipient_sub, sender, sender_sub, txn_no, session_id, status_date):
+    """
+    The real OPay app export: a big status banner with an ordinal date above
+    everything, then Recipient Details / Sender Details as two-line blocks —
+    bold name, grey account line underneath — with no field labelled "Type" at
+    all. This shape produced two real extraction bugs: the ordinal ("31st")
+    broke date parsing outright, and with "Sender Details" unrecognised as a
+    label its whole block (plus the "Successful" banner above everything) fell
+    inside "Recipient Details"'s own search window, so the banner — being
+    topmost — was returned as the merchant.
+    """
+    width, height = 620, 560
+    img = Image.new("RGB", (width, height), "white")
+    d = ImageDraw.Draw(img)
+
+    d.text((width // 2, 40), amount, font=font(26, True), fill="#0B8F5A", anchor="mm")
+    d.text((width // 2, 75), "Successful", font=font(18, True), fill="#222", anchor="mm")
+    d.text((width // 2, 98), status_date, font=font(11), fill="#888", anchor="mm")
+
+    y = 140
+
+    def row(label, first, second, y):
+        d.text((40, y), label, font=font(12), fill="#999")
+        d.text((width - 40, y), first, font=font(14, True), fill="#111", anchor="ra")
+        d.text((width - 40, y + 20), second, font=font(11), fill="#666", anchor="ra")
+        return y + 60
+
+    y = row("Recipient Details", recipient, recipient_sub, y)
+    y = row("Sender Details", sender, sender_sub, y)
+    d.text((40, y), "Transaction No.", font=font(12), fill="#999")
+    d.text((width - 40, y), txn_no, font=font(12), fill="#111", anchor="ra")
+    y += 40
+    d.text((40, y), "Session ID", font=font(12), fill="#999")
+    d.text((width - 40, y), session_id, font=font(12), fill="#111", anchor="ra")
+    y += 50
+
+    d.text((40, y), "Enjoy a better life with OPay. Get free transfers, withdrawals, bill payments,", font=font(9), fill="#aaa")
+    d.text((40, y + 15), "instant loans, and good annual interest on your savings.", font=font(9), fill="#aaa")
+
+    img.save(OUT / f"{name}.png")
+    print(f"wrote {name}.png")
+
+
+opay_receipt_page(
+    "opay_receipt_page",
+    "N3,000.00",
+    "RAYMOND OSAS",
+    "POCKETAPP | 7876588494",
+    "TOLUWALOPE JUDAH AKAPO",
+    "OPay | 815****960",
+    "2608310201004767051 83299",
+    "100004260831133618169865077046",
+    "Aug 31st, 2026 14:36:12",
+)
+
 compact_receipt(
     "kuda_airtime",
     "Kuda",

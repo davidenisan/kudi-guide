@@ -88,7 +88,16 @@ const LABELS = {
     "description",
     "purpose",
   ],
-  sender: ["sender", "sender name", "from", "paid from", "payer", "debit account", "source account"],
+  sender: [
+    "sender",
+    "sender name",
+    "sender details",
+    "from",
+    "paid from",
+    "payer",
+    "debit account",
+    "source account",
+  ],
 } as const;
 
 /** Words that mean this is a payment receipt rather than any other screenshot. */
@@ -432,7 +441,14 @@ const MONTHS: Record<string, number> = {
  * numeric forms, which is the local convention.
  */
 export function parseReceiptDate(text: string, now: Date = new Date()): Date | null {
-  const cleaned = text.replace(/\s+/g, " ").trim();
+  const cleaned = text
+    .replace(/\s+/g, " ")
+    .trim()
+    // "Aug 31st, 2026" / "22nd August" — the ordinal suffix sits directly
+    // against the day digits with no separator, which broke every pattern
+    // below: none of them expect letters between a number and what follows
+    // it. OPay writes every date this way, so this was not an edge case.
+    .replace(/\b(\d{1,2})(st|nd|rd|th)\b/gi, "$1");
 
   // 25 Aug 2026 / Aug 25, 2026 / 25-Aug-2026
   const named = /(\d{1,2})[\s\-/]*([a-z]{3,9})[\s\-/,]*(\d{4})|([a-z]{3,9})[\s\-/]*(\d{1,2})[\s\-/,]*(\d{4})/i.exec(cleaned);
@@ -535,6 +551,20 @@ function prominentAmount(lines: OcrLine[]): { line: OcrLine; text: string; quali
   return { line: tallest.line, text: tallest.line.text, quality: 0.6 };
 }
 
+/**
+ * The date when no label anchors it — several fintech receipts print a plain
+ * timestamp under the status banner with no "Date" label anywhere on the page.
+ * The first date-shaped line in reading order is used: the header timestamp is
+ * always the first one on the receipt, ahead of anything else that might
+ * coincidentally look like a date further down.
+ */
+function prominentDate(lines: OcrLine[]): { line: OcrLine; text: string; quality: number } | null {
+  const candidate = lines
+    .filter((line) => line.box && looksLikeDate(line.text))
+    .sort((a, b) => a.box!.top - b.box!.top)[0];
+  return candidate ? { line: candidate, text: candidate.text, quality: 0.6 } : null;
+}
+
 export function extractFields(result: OcrResult): ExtractedReceipt {
   const lines = result.lines;
   const text = plainText(result);
@@ -546,7 +576,7 @@ export function extractFields(result: OcrResult): ExtractedReceipt {
     valueFor(lines, findLabels(lines, LABELS.amount), looksLikeMoney) ?? prominentAmount(lines);
   const amountKobo = amountHit ? parseAmountToKobo(amountHit.text) : null;
 
-  const dateHit = valueFor(lines, findLabels(lines, LABELS.date), looksLikeDate);
+  const dateHit = valueFor(lines, findLabels(lines, LABELS.date), looksLikeDate) ?? prominentDate(lines);
   const parsedDate = dateHit ? parseReceiptDate(dateHit.text) : null;
 
   const referenceHit = valueFor(lines, findLabels(lines, LABELS.reference), looksLikeReference);
@@ -573,11 +603,29 @@ export function extractFields(result: OcrResult): ExtractedReceipt {
 }
 
 /** A name or a word, not a number and not a label. */
+/**
+ * The banner every receipt opens with, before any real field: "Successful",
+ * "Transaction Receipt", "Payment Successful", "Approved". These read exactly
+ * like a name-shaped value — letters, sensible length, not money, not a bare
+ * number — and sit physically above every real label on the page, so a field
+ * whose own label happens to be the first one found had nothing above it to
+ * bound the search and this banner won by being topmost. It is never a
+ * merchant, a sender, or anything else a bank actually filled in.
+ */
+const STATUS_BANNER =
+  /^(transaction\s+)?(successful|pending|failed|declined|approved|completed|receipt)(\s+(successful|receipt))?$/i;
+
 function isNameLike(text: string): boolean {
   const trimmed = text.trim();
   if (trimmed.length < 2 || trimmed.length > 60) return false;
   if (looksLikeMoney(trimmed)) return false;
   if (/^\d+$/.test(trimmed.replace(/\s/g, ""))) return false;
+  if (STATUS_BANNER.test(trimmed)) return false;
+  // A date is never a name. Without this, an unlabelled date sitting above an
+  // unusually-topmost label — nothing above it to bound the search against —
+  // was accepted as name-shaped text and returned as the merchant, mangled
+  // further by cleanName() stripping everything up to the time's own colon.
+  if (looksLikeDate(trimmed)) return false;
   return /[a-z]{2,}/i.test(trimmed);
 }
 
