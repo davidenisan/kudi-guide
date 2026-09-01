@@ -1,4 +1,4 @@
-import { detectBank } from "../banks.js";
+import { detectBank, knownBanks } from "../banks.js";
 import { plainText, type OcrBox, type OcrLine, type OcrResult } from "./ocr-client.js";
 
 /**
@@ -605,22 +605,66 @@ export function extractFields(result: OcrResult): ExtractedReceipt {
 /** A name or a word, not a number and not a label. */
 /**
  * The banner every receipt opens with, before any real field: "Successful",
- * "Transaction Receipt", "Payment Successful", "Approved". These read exactly
- * like a name-shaped value — letters, sensible length, not money, not a bare
- * number — and sit physically above every real label on the page, so a field
- * whose own label happens to be the first one found had nothing above it to
- * bound the search and this banner won by being topmost. It is never a
- * merchant, a sender, or anything else a bank actually filled in.
+ * "Transaction Successful", "Successful Transaction", "Transaction Receipt",
+ * "Payment Successful", "Approved". These read exactly like a name-shaped
+ * value — letters, sensible length, not money, not a bare number — and sit
+ * physically above every real label on the page, so a field whose own label
+ * happens to be the first one found had nothing above it to bound the search
+ * and this banner won by being topmost. It is never a merchant, a sender, or
+ * anything else a bank actually filled in.
+ *
+ * Word order is not fixed: PalmPay writes "Successful Transaction", Access
+ * writes "Transaction Successful". A line built entirely from these words,
+ * in any order and any of the one or two that appear, is a banner.
  */
-const STATUS_BANNER =
-  /^(transaction\s+)?(successful|pending|failed|declined|approved|completed|receipt)(\s+(successful|receipt))?$/i;
+const BANNER_WORDS = new Set([
+  "transaction",
+  "payment",
+  "successful",
+  "pending",
+  "failed",
+  "declined",
+  "approved",
+  "completed",
+  "receipt",
+]);
+
+function isStatusBanner(text: string): boolean {
+  const words = text
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .filter(Boolean);
+  if (words.length === 0 || words.length > 3) return false;
+  return words.every((word) => BANNER_WORDS.has(word));
+}
+
+/**
+ * A receipt's own logo/wordmark, sitting at the top of the page above every
+ * real field, is a name-shaped candidate exactly like a status banner is — and
+ * the same reasoning applies: it is never a merchant, sender or transaction
+ * type, whichever field's label happens to have nothing above it to bound the
+ * search. "PalmPay" at the top-left of a PalmPay receipt was returned as the
+ * merchant this way; the app that made the receipt is not who the money went
+ * to. Fintech names are also split by OCR sometimes ("Palm" / "Pay" as two
+ * detections), which a prefix check catches too.
+ */
+function isOwnBrand(text: string): boolean {
+  const normalized = text.trim().toLowerCase().replace(/\s+/g, "");
+  if (normalized.length < 3) return false;
+  return knownBanks().some((bank) => {
+    const brand = bank.toLowerCase().replace(/\s+/g, "");
+    return normalized === brand || (normalized.length >= 4 && brand.startsWith(normalized));
+  });
+}
 
 function isNameLike(text: string): boolean {
   const trimmed = text.trim();
   if (trimmed.length < 2 || trimmed.length > 60) return false;
   if (looksLikeMoney(trimmed)) return false;
   if (/^\d+$/.test(trimmed.replace(/\s/g, ""))) return false;
-  if (STATUS_BANNER.test(trimmed)) return false;
+  if (isStatusBanner(trimmed)) return false;
+  if (isOwnBrand(trimmed)) return false;
   // A date is never a name. Without this, an unlabelled date sitting above an
   // unusually-topmost label — nothing above it to bound the search against —
   // was accepted as name-shaped text and returned as the merchant, mangled

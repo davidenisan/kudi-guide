@@ -227,6 +227,78 @@ compact_receipt(
     header_color="#6C2EB9",
 )
 
+def palmpay_receipt_card(name, amount, status_line, status_date, recipient, recipient_sub,
+                          sender, sender_sub, txn_type, purpose, txn_id):
+    """
+    PalmPay's own app card: a bare wordmark top-left above everything else,
+    a status line as "Successful Transaction" — reversed from Access's own
+    "Transaction Successful" — then Recipient/Sender stacked label-above-value,
+    then a "Transaction Info" section that switches to label-left/value-right.
+
+    This shape produced two real bugs before the fixes here: the bare
+    "PalmPay" wordmark, being literally the first text on the page and
+    genuinely name-shaped, was returned as the merchant — the app that made
+    the receipt is never who the money went to. And the reversed status
+    banner slipped past a check written for "Transaction Successful" only.
+    """
+    width, height = 620, 800
+    img = Image.new("RGB", (width, height), "white")
+    d = ImageDraw.Draw(img)
+
+    d.text((40, 30), "PalmPay", font=font(20, True), fill="#6C2EB9")
+    d.text((width // 2, 90), amount, font=font(28, True), fill="#6C2EB9", anchor="mm")
+    d.text((width // 2, 125), status_line, font=font(14, True), fill="#333", anchor="mm")
+    d.text((width // 2, 148), status_date, font=font(11), fill="#888", anchor="mm")
+
+    y = 190
+
+    def stacked(label, first, second, y):
+        d.text((40, y), label, font=font(12), fill="#999")
+        d.text((40, y + 22), first, font=font(15, True), fill="#111")
+        d.text((40, y + 44), second, font=font(11), fill="#666")
+        return y + 80
+
+    y = stacked("Recipient:", recipient, recipient_sub, y)
+    y = stacked("Sender:", sender, sender_sub, y)
+
+    y += 15
+    d.line([40, y, width - 40, y], fill="#eee")
+    y += 20
+    d.text((40, y), "Transaction Info", font=font(14, True), fill="#333")
+    y += 40
+
+    def table_row(label, value, y):
+        d.text((40, y), label, font=font(12), fill="#999")
+        d.text((width - 40, y), value, font=font(13), fill="#111", anchor="ra")
+        return y + 36
+
+    y = table_row("Transaction Type", txn_type, y)
+    y = table_row("What's it for", purpose, y)
+    y = table_row("Transaction ID", txn_id, y)
+
+    y += 30
+    d.text((40, y), "Enjoy Seamless and Unlimited Free Transfers to All Banks.", font=font(9), fill="#aaa")
+    d.text((40, y + 14), "Get cashbacks in Airtime & data top-up!", font=font(9), fill="#aaa")
+    d.text((40, y + 28), "Enjoy all at PalmPay!", font=font(9), fill="#aaa")
+
+    img.save(OUT / f"{name}.png")
+    print(f"wrote {name}.png")
+
+
+palmpay_receipt_card(
+    "palmpay_receipt_card",
+    "N4,000.00",
+    "Successful Transaction",
+    "17:25, Aug 30, 2026",
+    "RAYMOND OSAS",
+    "POCKETAPP | 7876588494",
+    "OLUWAFEMI ODUSANYA",
+    "PalmPay | 810 *** 1455",
+    "Money Transfer - MMO",
+    "House due",
+    "033A0DOC3600",
+)
+
 # --- junk: not a receipt at all. Must never be reported as one. -----------
 img = Image.new("RGB", (400, 300), "white")
 d = ImageDraw.Draw(img)
