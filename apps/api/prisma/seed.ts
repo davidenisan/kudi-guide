@@ -11,6 +11,7 @@ const defaultCategories = [
   "Savings & Investing",
   "Data & Airtime",
   "Family",
+  "Transfers",
   "Entertainment",
   "Other",
 ];

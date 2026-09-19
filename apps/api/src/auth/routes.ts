@@ -1,3 +1,5 @@
+import { publicUser } from "./account.js";
+import { createCredentialsRouter } from "./credentials.js";
 import { Router } from "express";
 import { z } from "zod";
 
@@ -8,6 +10,7 @@ import {
   OtpVerificationError,
 } from "./otpService.js";
 import type { AuthDependencies } from "./dependencies.js";
+import { env } from "../config/env.js";
 
 const phoneSchema = z.object({
   phone: z.string().min(1),
@@ -19,9 +22,15 @@ const verifySchema = phoneSchema.extend({
 
 export function createAuthRouter(dependencies: AuthDependencies) {
   const router = Router();
+  router.use(createCredentialsRouter(dependencies));
   const authMiddleware = createAuthMiddleware(dependencies);
 
   router.post("/otp/request", async (request, response) => {
+    if (!env.PHONE_SIGNIN_ENABLED) {
+      response.status(503).json({ error: "Phone number sign-in is temporarily unavailable." });
+      return;
+    }
+
     const parsed = phoneSchema.safeParse(request.body);
 
     if (!parsed.success) {
@@ -38,6 +47,11 @@ export function createAuthRouter(dependencies: AuthDependencies) {
   });
 
   router.post("/otp/resend", async (request, response) => {
+    if (!env.PHONE_SIGNIN_ENABLED) {
+      response.status(503).json({ error: "Phone number sign-in is temporarily unavailable." });
+      return;
+    }
+
     const parsed = phoneSchema.safeParse(request.body);
 
     if (!parsed.success) {
@@ -54,6 +68,11 @@ export function createAuthRouter(dependencies: AuthDependencies) {
   });
 
   router.post("/otp/verify", async (request, response) => {
+    if (!env.PHONE_SIGNIN_ENABLED) {
+      response.status(503).json({ error: "Phone number sign-in is temporarily unavailable." });
+      return;
+    }
+
     const parsed = verifySchema.safeParse(request.body);
 
     if (!parsed.success) {
@@ -84,10 +103,7 @@ export function createAuthRouter(dependencies: AuthDependencies) {
 
   router.get("/me", authMiddleware, (request, response) => {
     response.json({
-      user: {
-        id: request.user?.id,
-        phone: request.user?.phone,
-      },
+      user: publicUser(request.user!),
     });
   });
 

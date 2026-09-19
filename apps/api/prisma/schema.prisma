@@ -22,6 +22,7 @@ enum OcrStatus {
 
 enum TransactionSource {
   whatsapp
+  telegram
   upload
   manual
 }
@@ -40,8 +41,14 @@ enum GoalType {
 
 model User {
   id             String         @id @default(uuid()) @db.Uuid
+  username       String?        @unique
+  passwordHash   String?        @map("password_hash")
+  sessions       Session[]
+  nickname       String?
+  transactionAlerts Boolean @default(true) @map("transaction_alerts")
   phone          String?        @unique
   email          String?        @unique
+  telegramChatId String?        @unique @map("telegram_chat_id")
   authProvider   AuthProvider   @map("auth_provider")
   createdAt      DateTime       @default(now()) @map("created_at")
   screenshots    Screenshot[]
@@ -49,8 +56,25 @@ model User {
   budgets        Budget[]
   goals          Goal[]
   notifications  Notification[]
+  telegramTokens TelegramLinkToken[]
+  conversation TelegramConversation?
+  telegramTurns TelegramTurn[]
 
   @@map("users")
+}
+
+model TelegramLinkToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  code      String    @unique
+  expiresAt DateTime  @map("expires_at")
+  usedAt    DateTime? @map("used_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([code])
+  @@map("telegram_link_tokens")
 }
 
 model Screenshot {
@@ -126,9 +150,47 @@ model Notification {
   userId   String    @map("user_id") @db.Uuid
   type     String
   payload  Json
+  readAt   DateTime? @map("read_at")
   sentAt   DateTime? @map("sent_at")
   user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("notifications")
+}
+
+model TelegramLogin {
+  code String @id
+  verifierHash String @map("verifier_hash")
+  chatId String? @map("chat_id")
+  expiresAt DateTime @map("expires_at")
+  @@map("telegram_logins")
+}
+
+model TelegramConversation {
+  userId String @id @map("user_id") @db.Uuid
+  state Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@map("telegram_conversations")
+}
+
+model TelegramTurn {
+  key String @id
+  userId String @map("user_id") @db.Uuid
+  reply String
+  createdAt DateTime @default(now()) @map("created_at")
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@map("telegram_turns")
+}
+
+model Session {
+  tokenHash String @id @map("token_hash")
+  userId String @db.Uuid @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
 }

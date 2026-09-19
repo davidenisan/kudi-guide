@@ -11,6 +11,10 @@ const envSchema = z.object({
   API_CORS_ORIGIN: z.string().url().default("http://localhost:3000"),
   JWT_SECRET: z.string().min(32),
   JWT_ACCESS_TOKEN_TTL: z.string().default("15m"),
+  PHONE_SIGNIN_ENABLED: z
+    .enum(["true", "false"])
+    .default("false")
+    .transform((value) => value === "true"),
   TERMII_API_KEY: z.string().optional(),
   TERMII_SENDER_ID: z.string().default("KudiGuide"),
   DATABASE_URL: z.string().min(1),
@@ -20,6 +24,16 @@ const envSchema = z.object({
   S3_ACCESS_KEY_ID: z.string().min(1),
   S3_SECRET_ACCESS_KEY: z.string().min(1),
   S3_BUCKET: z.string().min(1),
+  OLLAMA_URL: z.string().url().default("http://127.0.0.1:11434"),
+  OLLAMA_MODEL: z.string().default("qwen3:4b"),
+  LLM_ENABLED: z.enum(["true", "false"]).default("true").transform((value) => value === "true"),
+  LLM_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300000).default(90000),
+  TESSERACT_BIN: z.string().default("tesseract"),
+  PDFTOTEXT_BIN: z.string().default("pdftotext"),
+  PDFTOPPM_BIN: z.string().default("pdftoppm"),
+  PDFINFO_BIN: z.string().default("pdfinfo"),
+  TELEGRAM_BOT_TOKEN: z.string().optional(),
+  TELEGRAM_WEBHOOK_SECRET: z.string().optional(),
   S3_FORCE_PATH_STYLE: z
     .enum(["true", "false"])
     .default("false")

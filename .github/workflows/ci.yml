@@ -26,6 +26,17 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      - name: Install receipt tools
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr poppler-utils
+
+      - name: Generate database client
+        run: pnpm --filter api prisma generate
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/kudi_guide_test
+
+      - name: Test
+        run: pnpm --filter api test
+
       - name: Lint
         run: pnpm lint
 

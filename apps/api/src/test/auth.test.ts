@@ -16,6 +16,7 @@ process.env.NODE_ENV = "test";
 process.env.API_CORS_ORIGIN = "http://localhost:3000";
 process.env.JWT_SECRET = "test-secret-that-is-long-enough-for-jwt-signing";
 process.env.JWT_ACCESS_TOKEN_TTL = "15m";
+process.env.PHONE_SIGNIN_ENABLED = "true";
 process.env.DATABASE_URL = "postgresql://postgres:postgres@localhost:5432/kudi_guide_test";
 process.env.REDIS_URL = "redis://localhost:6379";
 process.env.S3_REGION = "us-east-1";
@@ -163,6 +164,7 @@ describe("auth routes", () => {
       .expect(({ body }) => {
         expect(body.user).toEqual({
           id: "user-1",
+          hasPassword: false,
           phone: "+2348012345678",
         });
       });

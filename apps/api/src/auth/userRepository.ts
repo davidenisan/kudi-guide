@@ -1,6 +1,11 @@
 export type AuthUser = {
   id: string;
   phone: string | null;
+  nickname?: string | null;
+  email?: string | null;
+  username?: string | null;
+  passwordHash?: string | null;
+  transactionAlerts?: boolean;
 };
 
 export interface UserRepository {

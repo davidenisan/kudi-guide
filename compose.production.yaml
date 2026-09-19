@@ -1,0 +1,99 @@
+name: kudi-guide
+x-api-env: &api-env
+  NODE_ENV: production
+  PORT: 4000
+  API_CORS_ORIGIN: https://${APP_DOMAIN:?Set APP_DOMAIN}
+  JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET}
+  DATABASE_URL: postgresql://kudi:${POSTGRES_PASSWORD:?Use a random hex password}@postgres:5432/kudi_guide
+  REDIS_URL: redis://redis:6379
+  TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:?Set TELEGRAM_BOT_TOKEN}
+  PHONE_SIGNIN_ENABLED: "false"
+  LLM_ENABLED: "true"
+  OLLAMA_URL: http://ollama:11434
+  OLLAMA_MODEL: qwen3:4b
+  LLM_TIMEOUT_MS: 180000
+  S3_ACCESS_KEY_ID: unused-by-telegram
+  S3_SECRET_ACCESS_KEY: unused-by-telegram
+  S3_BUCKET: unused-by-telegram
+x-logging: &logging
+  driver: json-file
+  options: { max-size: "10m", max-file: "3" }
+services:
+  postgres:
+    image: postgres:16-alpine
+    logging: *logging
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: kudi
+      POSTGRES_DB: kudi_guide
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    volumes: ["postgres_data:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kudi -d kudi_guide"]
+      interval: 5s
+      retries: 20
+  redis:
+    image: redis:7-alpine
+    logging: *logging
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory-policy", "noeviction"]
+    volumes: ["redis_data:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 20
+  ollama:
+    image: ollama/ollama:latest
+    logging: *logging
+    restart: unless-stopped
+    environment:
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_MAX_LOADED_MODELS: "1"
+    volumes: ["ollama_data:/root/.ollama"]
+  migrate:
+    build: { context: ., dockerfile: deploy/Dockerfile, target: api }
+    environment: *api-env
+    command: ["./node_modules/.bin/prisma", "migrate", "deploy"]
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+  api:
+    build: { context: ., dockerfile: deploy/Dockerfile, target: api }
+    logging: *logging
+    restart: unless-stopped
+    init: true
+    environment: *api-env
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      redis: { condition: service_healthy }
+      ollama: { condition: service_started }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:4000/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      retries: 10
+    stop_grace_period: 4m
+  web:
+    build: { context: ., dockerfile: deploy/Dockerfile, target: web }
+    logging: *logging
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      API_INTERNAL_URL: http://api:4000
+      APP_ORIGIN: https://${APP_DOMAIN:?Set APP_DOMAIN}
+    depends_on:
+      api: { condition: service_healthy }
+  caddy:
+    image: caddy:2-alpine
+    logging: *logging
+    restart: unless-stopped
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?Set APP_DOMAIN}
+    ports: ["80:80", "443:443", "443:443/udp"]
+    volumes: ["./deploy/Caddyfile:/etc/caddy/Caddyfile:ro", "caddy_data:/data", "caddy_config:/config"]
+    depends_on: [web]
+volumes:
+  postgres_data:
+  redis_data:
+  ollama_data:
+  caddy_data:
+  caddy_config:

@@ -1,3 +1,4 @@
+import { sessionUserId } from "./sessions.js";
 import type { NextFunction, Request, Response } from "express";
 
 import type { JwtService } from "./jwt.js";
@@ -17,8 +18,8 @@ export function createAuthMiddleware(input: {
     }
 
     try {
-      const payload = input.jwtService.verifyAccessToken(token);
-      const user = await input.userRepository.findById(payload.sub);
+      const userId = token.startsWith("kg_") ? await sessionUserId(token) : input.jwtService.verifyAccessToken(token).sub;
+      const user = userId ? await input.userRepository.findById(userId) : null;
 
       if (!user) {
         response.status(401).json({ error: "Invalid access token." });

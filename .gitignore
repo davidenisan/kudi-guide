@@ -1,6 +1,7 @@
 node_modules
 .pnpm-store
 .next
+.next-build
 dist
 build
 .turbo
@@ -12,3 +13,6 @@ coverage
 *.tsbuildinfo
 .DS_Store
 apps/api/prisma/migrations/*/migration_lock.toml
+
+*.dump
+backups/
