@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 export async function credentials(request: NextRequest, action: "register" | "login" | "setup") {
  const origin = request.headers.get("origin");
- if (origin && origin !== (process.env.APP_ORIGIN ?? request.nextUrl.origin)) return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
+ const allowedOrigins = [process.env.APP_ORIGIN ?? request.nextUrl.origin, ...(process.env.APP_ALLOWED_ORIGINS ?? "").split(",")].map(value => value.trim()).filter(Boolean);
+ if (origin && !allowedOrigins.includes(origin)) return NextResponse.json({ error: "Invalid request origin." }, { status: 403 });
  try {
   const token = request.cookies.get("kg_access_token")?.value;
   const upstream = await fetch(`${process.env.API_INTERNAL_URL ?? "http://localhost:4000"}/auth/${action}`, {

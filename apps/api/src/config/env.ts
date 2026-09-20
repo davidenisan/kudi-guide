@@ -8,7 +8,9 @@ loadEnv({ path: resolve(process.cwd(), ".env"), override: true });
 const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().positive().default(4000),
-  API_CORS_ORIGIN: z.string().url().default("http://localhost:3000"),
+  API_CORS_ORIGIN: z.string().default("http://localhost:3000")
+    .transform(value => value.split(",").map(origin => origin.trim()))
+    .pipe(z.array(z.string().url()).min(1)),
   JWT_SECRET: z.string().min(32),
   JWT_ACCESS_TOKEN_TTL: z.string().default("15m"),
   PHONE_SIGNIN_ENABLED: z
